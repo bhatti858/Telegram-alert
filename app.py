@@ -34,7 +34,7 @@ def webhook():
         )
 
         url = f"https://api.telegram.org/bot8804297584:AAHSSJ9VwCk3dIZlVvh3p6YjP0J5i0B5gi0/sendMessage"
-        requests.post(url, json={"chat_id": -1004481939466, "text": message, "parse_mode": "Markdown"})
+        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "-1004481939466": message, "parse_mode": "Markdown"})
         return "OK", 200
     except Exception as e:
         return f"Error: {e}", 400
