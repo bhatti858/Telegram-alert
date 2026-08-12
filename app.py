@@ -100,7 +100,7 @@ def send_telegram(message):
 
 @app.route('/')
 def home():
-    return "Bot with Bulletproof Close Logic is Active!", 200
+    return "Bot Active & Fixed!", 200
 
 
 @app.route('/webhook', methods=['GET', 'POST'])
@@ -129,44 +129,41 @@ def webhook():
         # ----------------------------------------------------
         if position == "flat" or (prev_position in ["long", "short"] and position != prev_position) or is_sl_hit:
             
-            # Agar database me entry price save hai
             if active_trade:
                 act_action, entry_price = active_trade
+
+                # Equal prices protection (avoid fake zero pips if prices match exactly due to glitch)
+                if abs(price - entry_price) > 0.01:
+                    if act_action == "BUY":
+                        pips = round((price - entry_price) / pip_value)
+                    else:  # SELL
+                        pips = round((entry_price - price) / pip_value)
+
+                    log_pips(ticker, "CLOSED_TRADE", pips)
+                    clear_active_position(ticker)
+
+                    # Headers Format
+                    if is_sl_hit or pips < 0:
+                        status_title = "🛑 **STOPLOSS HIT** 🛑" if is_sl_hit else "🔴 **TRADE CLOSED** 🔴"
+                        pnl_text = f"**{pips} Pips Loss** 🛑"
+                    else:
+                        status_title = "🟢 **TRADE CLOSED** 🟢"
+                        pnl_text = f"**+{pips} Pips Profit** 🎉"
+
+                    close_msg = (
+                        f"{status_title}\n\n"
+                        f"📌 **Symbol:** {ticker}\n"
+                        f"➡️ **Type:** {act_action}\n"
+                        f"💵 **Entry Price:** ${entry_price:.2f}\n"
+                        f"💵 **Exit Price:** ${price:.2f}\n"
+                        f"───────────────────\n"
+                        f"📊 **Result:** {pnl_text}"
+                    )
+                    send_telegram(close_msg)
+
             else:
-                # Agar DB reset ho chuki thi, fallback behavior
-                act_action = "BUY" if prev_position == "long" else "SELL"
-                entry_price = price  # Default fallback
-
-            # Calculate Pips
-            if act_action == "BUY":
-                pips = round((price - entry_price) / pip_value) if entry_price != price else 0
-            else:  # SELL
-                pips = round((entry_price - price) / pip_value) if entry_price != price else 0
-
-            log_pips(ticker, "CLOSED_TRADE", pips)
-            clear_active_position(ticker)
-
-            # Headers Format
-            if is_sl_hit or pips < 0:
-                status_title = "🛑 **STOPLOSS HIT** 🛑" if is_sl_hit else "🔴 **TRADE CLOSED** 🔴"
-                pnl_text = f"**{pips} Pips Loss** 🛑"
-            elif pips > 0:
-                status_title = "🟢 **TRADE CLOSED** 🟢"
-                pnl_text = f"**+{pips} Pips Profit** 🎉"
-            else:
-                status_title = "🟢 **TRADE CLOSED** 🟢"
-                pnl_text = f"**Trade Exited** ⚖️"
-
-            close_msg = (
-                f"{status_title}\n\n"
-                f"📌 **Symbol:** {ticker}\n"
-                f"➡️ **Type:** {act_action}\n"
-                f"💵 **Entry Price:** ${entry_price:.2f}\n"
-                f"💵 **Exit Price:** ${price:.2f}\n"
-                f"───────────────────\n"
-                f"📊 **Result:** {pnl_text}"
-            )
-            send_telegram(close_msg)
+                # DB clear state cleanup
+                clear_active_position(ticker)
 
             if position == "flat" or is_sl_hit:
                 return "Close alert processed", 200
@@ -176,7 +173,7 @@ def webhook():
         # ----------------------------------------------------
         new_action = "BUY" if position == "long" or "buy" in raw_action else "SELL"
 
-        # Save active position
+        # Save current trade entry price properly
         save_active_position(ticker, new_action, price)
 
         sl_pips = 100
