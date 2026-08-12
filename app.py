@@ -9,6 +9,9 @@ app = Flask(__name__)
 TELEGRAM_BOT_TOKEN = "8804297584:AAHSSJ9VwCk3dIZlVvh3p6YjP0J5i0B5gi0"  # Replace with your @BotFather token
 TELEGRAM_CHAT_ID = "-1004481939466"         # Your Chat ID
 
+# Memory store to track actual entry prices during reversals
+POSITION_STORE = {}
+
 
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -39,9 +42,9 @@ def webhook():
         price = float(data.get('price', 0))
         
         try:
-            entry_price = float(data.get('entry_price', price))
+            tv_entry_price = float(data.get('entry_price', 0))
         except (ValueError, TypeError):
-            entry_price = price
+            tv_entry_price = 0
 
         comment = str(data.get('comment', '')).upper()
         position = str(data.get('position', '')).lower()
@@ -63,7 +66,7 @@ def webhook():
         elif "TP4" in comment or "TARGET 4" in comment:
             tp_target = "TP4 (+700 Pips)"
 
-        # Partial TP Hit (Position is not fully closed yet)
+        # Partial TP Hit
         if tp_target and position != "flat":
             act_type = "BUY" if position == "long" else "SELL"
             tp_msg = (
@@ -79,13 +82,21 @@ def webhook():
             return "TP Alert Sent", 200
 
         # ----------------------------------------------------
-        # 2. FULL TRADE CLOSE / SL HIT / FINAL EXIT
+        # 2. FULL TRADE CLOSE / SL HIT / REVERSAL EXIT
         # ----------------------------------------------------
         is_sl_hit = any(sl_term in comment for sl_term in ["SL", "STOP LOSS", "STOPLOSS"])
         is_close = position == "flat" or (prev_position in ["long", "short"] and position != prev_position) or is_sl_hit
 
         if is_close:
-            act_action = "BUY" if prev_position == "long" else "SELL"
+            # Retrieve real saved entry price from memory
+            stored_pos = POSITION_STORE.get(ticker)
+            
+            if stored_pos and stored_pos.get('entry_price', 0) > 0:
+                entry_price = stored_pos['entry_price']
+                act_action = stored_pos['action']
+            else:
+                entry_price = tv_entry_price if tv_entry_price > 0 else price
+                act_action = "BUY" if prev_position == "long" else "SELL"
 
             if entry_price > 0 and entry_price != price:
                 if act_action == "BUY":
@@ -117,13 +128,20 @@ def webhook():
             
             send_telegram(close_msg)
 
-            if position == "flat" or is_sl_hit:
+            if position == "flat":
+                POSITION_STORE.pop(ticker, None)
                 return "Close alert processed", 200
 
         # ----------------------------------------------------
-        # 3. NEW SIGNAL (BUY / SELL)
+        # 3. NEW SIGNAL / REVERSAL OPEN (BUY / SELL)
         # ----------------------------------------------------
         new_action = "BUY" if position == "long" or "buy" in raw_action else "SELL"
+
+        # Save new open position & entry price in memory
+        POSITION_STORE[ticker] = {
+            'action': new_action,
+            'entry_price': price
+        }
 
         sl_pips = 100
         tp1_pips = 100
