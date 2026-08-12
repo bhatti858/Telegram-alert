@@ -100,7 +100,7 @@ def send_telegram(message):
 
 @app.route('/')
 def home():
-    return "Bot with Duplicate Prevention & Custom Formatting Active!", 200
+    return "Bot with Bulletproof Close Logic is Active!", 200
 
 
 @app.route('/webhook', methods=['GET', 'POST'])
@@ -121,66 +121,62 @@ def webhook():
         raw_action = str(data.get('action', '')).lower()
 
         pip_value = 0.10  # XAUUSD Pip value
-
         active_trade = get_active_position(ticker)
         is_sl_hit = any(sl_term in comment for sl_term in ["SL", "STOP LOSS", "STOPLOSS"])
 
-        # Determine incoming new action
-        new_action = "BUY" if position == "long" or "buy" in raw_action else "SELL"
-
         # ----------------------------------------------------
-        # 1. TRADE CLOSE / EXIT / SL HIT / REVERSAL
+        # 1. TRADE CLOSE / EXIT / REVERSAL / SL HIT
         # ----------------------------------------------------
-        if position == "flat" or (prev_position in ["long", "short"] and prev_position != position) or is_sl_hit:
+        if position == "flat" or (prev_position in ["long", "short"] and position != prev_position) or is_sl_hit:
+            
+            # Agar database me entry price save hai
             if active_trade:
                 act_action, entry_price = active_trade
+            else:
+                # Agar DB reset ho chuki thi, fallback behavior
+                act_action = "BUY" if prev_position == "long" else "SELL"
+                entry_price = price  # Default fallback
 
-                # Calculate Pips
-                if act_action == "BUY":
-                    pips = round((price - entry_price) / pip_value)
-                else:  # SELL
-                    pips = round((entry_price - price) / pip_value)
+            # Calculate Pips
+            if act_action == "BUY":
+                pips = round((price - entry_price) / pip_value) if entry_price != price else 0
+            else:  # SELL
+                pips = round((entry_price - price) / pip_value) if entry_price != price else 0
 
-                log_pips(ticker, "CLOSED_TRADE", pips)
-                clear_active_position(ticker)
+            log_pips(ticker, "CLOSED_TRADE", pips)
+            clear_active_position(ticker)
 
-                # Format Message Title
-                if is_sl_hit or pips < 0:
-                    status_title = "🛑 **STOPLOSS HIT** 🛑" if is_sl_hit else "🔴 **TRADE CLOSED** 🔴"
-                    pnl_text = f"**{pips} Pips Loss** 🛑"
-                elif pips > 0:
-                    status_title = "🟢 **TRADE CLOSED** 🟢"
-                    pnl_text = f"**+{pips} Pips Profit** 🎉"
-                else:
-                    status_title = "⚪ **TRADE CLOSED** ⚪"
-                    pnl_text = f"**0 Pips (Break Even)** ⚖️"
+            # Headers Format
+            if is_sl_hit or pips < 0:
+                status_title = "🛑 **STOPLOSS HIT** 🛑" if is_sl_hit else "🔴 **TRADE CLOSED** 🔴"
+                pnl_text = f"**{pips} Pips Loss** 🛑"
+            elif pips > 0:
+                status_title = "🟢 **TRADE CLOSED** 🟢"
+                pnl_text = f"**+{pips} Pips Profit** 🎉"
+            else:
+                status_title = "🟢 **TRADE CLOSED** 🟢"
+                pnl_text = f"**Trade Exited** ⚖️"
 
-                close_msg = (
-                    f"{status_title}\n\n"
-                    f"📌 **Symbol:** {ticker}\n"
-                    f"➡️ **Type:** {act_action}\n"
-                    f"💵 **Entry Price:** ${entry_price:.2f}\n"
-                    f"💵 **Exit Price:** ${price:.2f}\n"
-                    f"───────────────────\n"
-                    f"📊 **Result:** {pnl_text}"
-                )
-                send_telegram(close_msg)
+            close_msg = (
+                f"{status_title}\n\n"
+                f"📌 **Symbol:** {ticker}\n"
+                f"➡️ **Type:** {act_action}\n"
+                f"💵 **Entry Price:** ${entry_price:.2f}\n"
+                f"💵 **Exit Price:** ${price:.2f}\n"
+                f"───────────────────\n"
+                f"📊 **Result:** {pnl_text}"
+            )
+            send_telegram(close_msg)
 
-                if position == "flat" or is_sl_hit:
-                    return "Closed/SL alert sent", 200
-
-                # Reversal tracking logic update
-                active_trade = None
-
-        # ----------------------------------------------------
-        # 2. DUPLICATE CHECK (Same trade active ho toh skip karain)
-        # ----------------------------------------------------
-        if active_trade and active_trade[0] == new_action:
-            return "Duplicate signal ignored", 200
+            if position == "flat" or is_sl_hit:
+                return "Close alert processed", 200
 
         # ----------------------------------------------------
-        # 3. NEW SIGNAL (BUY / SELL)
+        # 2. NEW SIGNAL (BUY / SELL)
         # ----------------------------------------------------
+        new_action = "BUY" if position == "long" or "buy" in raw_action else "SELL"
+
+        # Save active position
         save_active_position(ticker, new_action, price)
 
         sl_pips = 100
@@ -229,7 +225,7 @@ def webhook():
 
 
 # ----------------------------------------------------
-# 4. WEEKLY REPORT ROUTE
+# 3. WEEKLY REPORT ROUTE
 # ----------------------------------------------------
 @app.route('/weekly-report', methods=['GET'])
 def weekly_report():
