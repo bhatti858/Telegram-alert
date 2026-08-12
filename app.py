@@ -13,12 +13,11 @@ TELEGRAM_CHAT_ID = "-1004481939466"         # Aapki Chat ID
 
 
 # ----------------------------------------------------
-# DATABASE SETUP (Active Trade & Weekly Pips Record)
+# DATABASE SETUP
 # ----------------------------------------------------
 def init_db():
     conn = sqlite3.connect('pips_data.db')
     cursor = conn.cursor()
-    # Weekly report ke liye logs
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS trade_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,7 +27,6 @@ def init_db():
             pips REAL
         )
     ''')
-    # Active trade save karne ke liye
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS active_position (
             ticker TEXT PRIMARY KEY,
@@ -102,7 +100,7 @@ def send_telegram(message):
 
 @app.route('/')
 def home():
-    return "Bot with PnL Calculation is Active!", 200
+    return "Bot with Custom Header formatting is Active!", 200
 
 
 @app.route('/webhook', methods=['GET', 'POST'])
@@ -117,43 +115,47 @@ def webhook():
 
         ticker = data.get('ticker', 'XAUUSD')
         price = float(data.get('price', 0))
+        comment = str(data.get('comment', '')).upper()
         position = str(data.get('position', '')).lower()
         prev_position = str(data.get('prev_position', '')).lower()
         raw_action = str(data.get('action', '')).lower()
 
-        pip_value = 0.10  # XAUUSD: $0.10 = 1 Pip
+        pip_value = 0.10  # XAUUSD Pip value
 
         active_trade = get_active_position(ticker)
 
+        # Check if order was closed by Stoploss
+        is_sl_hit = any(sl_term in comment for sl_term in ["SL", "STOP LOSS", "STOPLOSS"])
+
         # ----------------------------------------------------
-        # 1. TRADE CLOSE / EXIT / REVERSAL PAR P&L CALCULATE KARNA
+        # 1. TRADE CLOSE / EXIT / SL HIT / REVERSAL
         # ----------------------------------------------------
-        if position == "flat" or (prev_position in ["long", "short"] and prev_position != position):
+        if position == "flat" or (prev_position in ["long", "short"] and prev_position != position) or is_sl_hit:
             if active_trade:
                 act_action, entry_price = active_trade
 
-                # Calculate Exact Pips
+                # Calculate Pips
                 if act_action == "BUY":
                     pips = round((price - entry_price) / pip_value)
                 else:  # SELL
                     pips = round((entry_price - price) / pip_value)
 
-                # Save pips for weekly report
                 log_pips(ticker, "CLOSED_TRADE", pips)
                 clear_active_position(ticker)
 
-                if pips > 0:
-                    status_icon = "🟢"
-                    pnl_text = f"**+{pips} Pips Profit** 🎉"
-                elif pips < 0:
-                    status_icon = "🔴"
+                # Header Format Setting
+                if is_sl_hit or pips < 0:
+                    status_title = "🛑 **STOPLOSS HIT** 🛑" if is_sl_hit else "🔴 **TRADE CLOSED** 🔴"
                     pnl_text = f"**{pips} Pips Loss** 🛑"
+                elif pips > 0:
+                    status_title = "🟢 **TRADE CLOSED** 🟢"
+                    pnl_text = f"**+{pips} Pips Profit** 🎉"
                 else:
-                    status_icon = "⚪"
+                    status_title = "⚪ **TRADE CLOSED** ⚪"
                     pnl_text = f"**0 Pips (Break Even)** ⚖️"
 
                 close_msg = (
-                    f"{status_icon} **TRADE CLOSED / EXITED** {status_icon}\n\n"
+                    f"{status_title}\n\n"
                     f"📌 **Symbol:** {ticker}\n"
                     f"➡️ **Type:** {act_action}\n"
                     f"💵 **Entry Price:** ${entry_price:.2f}\n"
@@ -163,15 +165,14 @@ def webhook():
                 )
                 send_telegram(close_msg)
 
-                if position == "flat":
-                    return "Flat alert sent with PnL", 200
+                if position == "flat" or is_sl_hit:
+                    return "Closed/SL alert sent", 200
 
         # ----------------------------------------------------
         # 2. NEW SIGNAL (BUY / SELL)
         # ----------------------------------------------------
         action = "BUY" if position == "long" or "buy" in raw_action else "SELL"
 
-        # Save active trade entry price to DB
         save_active_position(ticker, action, price)
 
         sl_pips = 100
