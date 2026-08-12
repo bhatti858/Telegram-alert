@@ -100,7 +100,7 @@ def send_telegram(message):
 
 @app.route('/')
 def home():
-    return "Bot with Custom Header formatting is Active!", 200
+    return "Bot with Duplicate Prevention & Custom Formatting Active!", 200
 
 
 @app.route('/webhook', methods=['GET', 'POST'])
@@ -123,9 +123,10 @@ def webhook():
         pip_value = 0.10  # XAUUSD Pip value
 
         active_trade = get_active_position(ticker)
-
-        # Check if order was closed by Stoploss
         is_sl_hit = any(sl_term in comment for sl_term in ["SL", "STOP LOSS", "STOPLOSS"])
+
+        # Determine incoming new action
+        new_action = "BUY" if position == "long" or "buy" in raw_action else "SELL"
 
         # ----------------------------------------------------
         # 1. TRADE CLOSE / EXIT / SL HIT / REVERSAL
@@ -143,7 +144,7 @@ def webhook():
                 log_pips(ticker, "CLOSED_TRADE", pips)
                 clear_active_position(ticker)
 
-                # Header Format Setting
+                # Format Message Title
                 if is_sl_hit or pips < 0:
                     status_title = "🛑 **STOPLOSS HIT** 🛑" if is_sl_hit else "🔴 **TRADE CLOSED** 🔴"
                     pnl_text = f"**{pips} Pips Loss** 🛑"
@@ -168,12 +169,19 @@ def webhook():
                 if position == "flat" or is_sl_hit:
                     return "Closed/SL alert sent", 200
 
-        # ----------------------------------------------------
-        # 2. NEW SIGNAL (BUY / SELL)
-        # ----------------------------------------------------
-        action = "BUY" if position == "long" or "buy" in raw_action else "SELL"
+                # Reversal tracking logic update
+                active_trade = None
 
-        save_active_position(ticker, action, price)
+        # ----------------------------------------------------
+        # 2. DUPLICATE CHECK (Same trade active ho toh skip karain)
+        # ----------------------------------------------------
+        if active_trade and active_trade[0] == new_action:
+            return "Duplicate signal ignored", 200
+
+        # ----------------------------------------------------
+        # 3. NEW SIGNAL (BUY / SELL)
+        # ----------------------------------------------------
+        save_active_position(ticker, new_action, price)
 
         sl_pips = 100
         tp1_pips = 100
@@ -181,7 +189,7 @@ def webhook():
         tp3_pips = 450
         tp4_pips = 700
 
-        if action == "BUY":
+        if new_action == "BUY":
             sl_price = price - (sl_pips * pip_value)
             tp1_price = price + (tp1_pips * pip_value)
             tp2_price = price + (tp2_pips * pip_value)
@@ -197,7 +205,7 @@ def webhook():
         message = (
             f"🚨 **TRADING SIGNAL** 🚨\n\n"
             f"📌 **Symbol:** {ticker}\n"
-            f"➡️ **Action:** {action}\n"
+            f"➡️ **Action:** {new_action}\n"
             f"💵 **Entry Price:** ${price:.2f}\n\n"
             f"🎯 **TAKE PROFIT TARGETS**\n"
             f"• TP1 : {tp1_price:.2f} | +{tp1_pips} pips\n"
@@ -221,7 +229,7 @@ def webhook():
 
 
 # ----------------------------------------------------
-# 3. WEEKLY REPORT ROUTE
+# 4. WEEKLY REPORT ROUTE
 # ----------------------------------------------------
 @app.route('/weekly-report', methods=['GET'])
 def weekly_report():
