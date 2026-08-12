@@ -30,15 +30,15 @@ def webhook():
         price = float(data.get('price', 0))
 
         # ----------------------------------------------------
-        # PIPS CONFIGURATION (Gold / XAUUSD: 1 Pip = $0.10)
+        # PIPS CONFIGURATION (XAUUSD: 1 Pip = $0.10)
         # ----------------------------------------------------
-        sl_pips = 100   # 100 pips ($10 stoploss)
-        tp1_pips = 100  # 100 pips ($10 TP1)
-        tp2_pips = 250  # 250 pips ($25 TP2)
-        tp3_pips = 450  # 450 pips ($45 TP3)
-        tp4_pips = 700  # 700 pips ($70 TP4)
+        sl_pips = 100
+        tp1_pips = 100
+        tp2_pips = 250
+        tp3_pips = 450
+        tp4_pips = 700
 
-        pip_value = 0.10  # 1 Pip = $0.10 on XAUUSD
+        pip_value = 0.10
 
         # AUTOMATIC CALCULATION FOR BUY & SELL
         if "BUY" in action:
@@ -54,31 +54,29 @@ def webhook():
             tp3_price = price - (tp3_pips * pip_value)
             tp4_price = price - (tp4_pips * pip_value)
 
-        # Telegram Message Formatting
+        # EXACT TELEGRAM MESSAGE FORMAT
         message = (
-            f"🚨 **NEW TRADING SIGNAL** 🚨\n\n"
-            f"📌 **Symbol:** {ticker}\n"
-            f"➡️ **Action:** {action}\n"
-            f"💵 **Entry Price:** ${price:.2f}\n\n"
-            f"🎯 **TAKE PROFIT TARGETS**\n"
-            f"• TP1 : {tp1_price:.2f} | +{tp1_pips} pip | Secure Profit\n"
-            f"• TP2 : {tp2_price:.2f} | +{tp2_pips} pip | Momentum Target\n"
-            f"• TP3 : {tp3_price:.2f} | +{tp3_pips} pip | Smart Money Target\n"
-            f"• TP4 : {tp4_price:.2f} | +{tp4_pips} pip | Max Projection\n\n"
-            f"🛑 **AI RISK CONTROL**\n"
-            f"Stop Loss : {sl_price:.2f} | -{sl_pips} pip\n\n"
-            f"📌 **EXECUTION PLAN**\n"
+            f"🚨 TRADING SIGNAL 🚨\n\n"
+            f"📌 Symbol: {ticker}\n"
+            f"➡️ Action: {action}\n"
+            f"💵 Entry Price: ${price:.2f}\n\n"
+            f"🎯 TAKE PROFIT TARGETS\n"
+            f"• TP1 : {tp1_price:.2f} | +{tp1_pips} pips\n"
+            f"• TP2 : {tp2_price:.2f} | +{tp2_pips} pips\n"
+            f"• TP3 : {tp3_price:.2f} | +{tp3_pips} pips\n"
+            f"• TP4 : {tp4_price:.2f} | +{tp4_pips} pips\n\n"
+            f"🛑 Stop Loss : {sl_price:.2f} | -{sl_pips} pips\n\n"
+            f"📌 EXECUTION PLAN\n"
             f"• Enter only within the given entry area\n"
             f"• Secure partial profit at TP1 / TP2\n"
-            f"• Once in profit, activate Break Even at +3 pip\n"
+            f"• Once in profit, activate Break Even at +3 pips\n"
             f"• Accept the stop loss if SL is hit - do not revenge trade"
         )
 
         url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
         payload = {
             "chat_id": TELEGRAM_CHAT_ID,
-            "text": message,
-            "parse_mode": "Markdown"
+            "text": message
         }
 
         requests.post(url, json=payload)
