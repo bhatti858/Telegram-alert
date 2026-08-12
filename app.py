@@ -11,6 +11,7 @@ app = Flask(__name__)
 # ----------------------------------------------------
 TELEGRAM_BOT_TOKEN = "8804297584:AAHSSJ9VwCk3dIZlVvh3p6YjP0J5i0B5gi0"  # Replace with your @BotFather token
 TELEGRAM_CHAT_ID = "-1004481939466"         # Your Chat ID
+BRAND_TAG = "@bhatti3273"                   # Your Channel / Brand Tag
 
 MEMORY_FILE = "trade_memory.json"
 
@@ -62,7 +63,6 @@ def calculate_pips(symbol, entry_price, exit_price, trade_type):
 
 
 def format_duration(start_time):
-    """Calculates readable duration from Unix timestamp"""
     if not start_time:
         return "N/A"
     
@@ -81,7 +81,7 @@ def format_duration(start_time):
 
 @app.route('/')
 def home():
-    return "Ultra Cool Trading Bot Active!", 200
+    return f"Trading Bot Active for {BRAND_TAG}!", 200
 
 
 @app.route('/webhook', methods=['GET', 'POST'])
@@ -149,7 +149,7 @@ def webhook():
                 f"📊 **Profit:** **+{current_pips} Pips 🎉**\n"
                 f"⏱ **Duration:** {duration_str}\n"
                 f"───────────────────\n"
-                f"💎 `#{ticker.upper()}` | *GoldAlgo VIP*"
+                f"💎 `#{ticker.upper()}` | **{BRAND_TAG}**"
             )
             send_telegram(tp_msg)
             return "Partial TP Alert Sent", 200
@@ -173,7 +173,7 @@ def webhook():
                     f"📉 **Result:** **{current_pips} Pips Loss 🛑**\n"
                     f"⏱ **Duration:** {duration_str}\n"
                     f"───────────────────\n"
-                    f"🛡 *Risk Managed Execution*"
+                    f"🛡 `#{ticker.upper()}` | **{BRAND_TAG}**"
                 )
             elif any(t in comment for t in ["TP", "TARGET", "PROFIT"]) or current_pips > 0:
                 close_msg = (
@@ -184,7 +184,7 @@ def webhook():
                     f"📊 **Profit:** **+{current_pips} Pips 🎉**\n"
                     f"⏱ **Duration:** {duration_str}\n"
                     f"───────────────────\n"
-                    f"💎 `#{ticker.upper()}` | *GoldAlgo VIP*"
+                    f"💎 `#{ticker.upper()}` | **{BRAND_TAG}**"
                 )
             else:
                 close_msg = (
@@ -195,7 +195,7 @@ def webhook():
                     f"⚖️ **Result:** **0 Pips (Break Even)**\n"
                     f"⏱ **Duration:** {duration_str}\n"
                     f"───────────────────\n"
-                    f"🛡 *Capital Saved*"
+                    f"🛡 `#{ticker.upper()}` | **{BRAND_TAG}**"
                 )
 
             send_telegram(close_msg)
@@ -206,7 +206,7 @@ def webhook():
                 return "Close alert processed", 200
 
         # ----------------------------------------------------
-        # 3. NEW SIGNAL OPEN
+        # 3. NEW SIGNAL OPEN (WITH CALCULATED TP & SL)
         # ----------------------------------------------------
         new_action = "BUY" if position == "long" or "buy" in raw_action else "SELL"
 
@@ -217,6 +217,23 @@ def webhook():
         }
         save_memory(memory)
 
+        # Calculate TP / SL Levels for Gold/Forex
+        is_gold = "XAU" in ticker.upper() or "GOLD" in ticker.upper()
+        multiplier = 0.10 if is_gold else 0.0001
+
+        if new_action == "BUY":
+            tp1_val = price + (100 * multiplier)
+            tp2_val = price + (250 * multiplier)
+            tp3_val = price + (450 * multiplier)
+            tp4_val = price + (700 * multiplier)
+            sl_val = price - (100 * multiplier)
+        else:  # SELL
+            tp1_val = price - (100 * multiplier)
+            tp2_val = price - (250 * multiplier)
+            tp3_val = price - (450 * multiplier)
+            tp4_val = price - (700 * multiplier)
+            sl_val = price + (100 * multiplier)
+
         signal_msg = (
             f"⚡️ **NEW TRADE SIGNAL** ⚡️\n"
             f"───────────────────\n"
@@ -224,7 +241,13 @@ def webhook():
             f"📈 **Action:** **{new_action}**\n"
             f"💵 **Entry Price:** ${price:.2f}\n"
             f"───────────────────\n"
-            f"⚡ *Automated Execution Active*"
+            f"🎯 **TP1:** ${tp1_val:.2f} (+100 Pips)\n"
+            f"🎯 **TP2:** ${tp2_val:.2f} (+250 Pips)\n"
+            f"🎯 **TP3:** ${tp3_val:.2f} (+450 Pips)\n"
+            f"🎯 **TP4:** ${tp4_val:.2f} (+700 Pips)\n"
+            f"🛑 **SL:** ${sl_val:.2f} (-100 Pips)\n"
+            f"───────────────────\n"
+            f"💎 `#{ticker.upper()}` | **{BRAND_TAG}**"
         )
         send_telegram(signal_msg)
         return "OK", 200
