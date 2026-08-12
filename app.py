@@ -1,5 +1,6 @@
 import json
 import os
+import time
 from flask import Flask, request
 import requests
 
@@ -15,7 +16,6 @@ MEMORY_FILE = "trade_memory.json"
 
 
 def load_memory():
-    """Disk se saved trade positions load karta hai"""
     if os.path.exists(MEMORY_FILE):
         try:
             with open(MEMORY_FILE, 'r') as f:
@@ -26,7 +26,6 @@ def load_memory():
 
 
 def save_memory(data):
-    """Disk par trade position save karta hai taake Render restart par delete na ho"""
     try:
         with open(MEMORY_FILE, 'w') as f:
             json.dump(data, f)
@@ -45,12 +44,7 @@ def send_telegram(message):
 
 
 def calculate_pips(symbol, entry_price, exit_price, trade_type):
-    """
-    100% Precise Pip Calculation Engine
-    For Gold (XAUUSD): $0.10 price difference = 1 pip
-    """
     trade_type_upper = trade_type.upper()
-    
     if trade_type_upper == "BUY":
         diff = exit_price - entry_price
     else:  # SELL
@@ -67,9 +61,27 @@ def calculate_pips(symbol, entry_price, exit_price, trade_type):
     return round(pips)
 
 
+def format_duration(start_time):
+    """Calculates readable duration from Unix timestamp"""
+    if not start_time:
+        return "N/A"
+    
+    seconds = int(time.time() - start_time)
+    if seconds < 60:
+        return "1 Min"
+    
+    minutes = seconds // 60
+    if minutes < 60:
+        return f"{minutes} Mins"
+    
+    hours = minutes // 60
+    rem_mins = minutes % 60
+    return f"{hours}h {rem_mins}m"
+
+
 @app.route('/')
 def home():
-    return "Persistent Trade Memory & Accurate Pips Bot Active!", 200
+    return "Ultra Cool Trading Bot Active!", 200
 
 
 @app.route('/webhook', methods=['GET', 'POST'])
@@ -96,82 +108,96 @@ def webhook():
         raw_action = str(data.get('action', '')).lower()
 
         memory = load_memory()
-        
-        # ----------------------------------------------------
-        # 1. SPECIFIC TAKE PROFIT (TP1, TP2, TP3, TP4) DETECTION
-        # ----------------------------------------------------
-        tp_target = None
-        if "TP1" in comment or "TARGET 1" in comment:
-            tp_target = "TP1 (+100 Pips)"
-        elif "TP2" in comment or "TARGET 2" in comment:
-            tp_target = "TP2 (+250 Pips)"
-        elif "TP3" in comment or "TARGET 3" in comment:
-            tp_target = "TP3 (+450 Pips)"
-        elif "TP4" in comment or "TARGET 4" in comment:
-            tp_target = "TP4 (+700 Pips)"
+        stored_pos = memory.get(ticker, {})
 
-        # Partial TP Hit
-        if tp_target and position != "flat":
-            act_type = "BUY" if position == "long" else "SELL"
+        if stored_pos and stored_pos.get('entry_price', 0) > 0:
+            entry_price = stored_pos['entry_price']
+            act_action = stored_pos['action']
+            start_timestamp = stored_pos.get('timestamp')
+        else:
+            entry_price = tv_entry_price if (tv_entry_price > 0 and tv_entry_price != price) else price
+            act_action = "BUY" if prev_position == "long" or position == "long" else "SELL"
+            start_timestamp = None
+
+        duration_str = format_duration(start_timestamp)
+
+        # ----------------------------------------------------
+        # 1. TP1 SE LE KAR TP4 TAK DETECTION
+        # ----------------------------------------------------
+        tp_label = "TP1"
+        if any(t in comment for t in ["TP4", "TARGET 4", "TARGET4", "TP 4", "TAKE PROFIT 4"]):
+            tp_label = "TP4"
+        elif any(t in comment for t in ["TP3", "TARGET 3", "TARGET3", "TP 3", "TAKE PROFIT 3"]):
+            tp_label = "TP3"
+        elif any(t in comment for t in ["TP2", "TARGET 2", "TARGET2", "TP 2", "TAKE PROFIT 2"]):
+            tp_label = "TP2"
+        elif any(t in comment for t in ["TP1", "TARGET 1", "TARGET1", "TP 1", "TAKE PROFIT 1"]):
+            tp_label = "TP1"
+
+        if entry_price > 0 and entry_price != price:
+            current_pips = calculate_pips(ticker, entry_price, price, act_action)
+        else:
+            current_pips = 0
+
+        # Partial TP Hit Alert
+        if any(t in comment for t in ["TP", "TARGET", "PROFIT"]) and position != "flat":
             tp_msg = (
-                f"🎯 **TAKE PROFIT HIT ({tp_target})** 🎯\n\n"
-                f"📌 **Symbol:** {ticker}\n"
-                f"➡️ **Type:** {act_type}\n"
-                f"💵 **Current Price:** ${price:.2f}\n"
+                f"🔥 **TARGET SMASHED!** 🔥\n"
                 f"───────────────────\n"
-                f"📊 **Status:** Partial Profit Secured 🎉\n"
-                f"💡 **Tip:** Shift Stop Loss to Break Even!"
+                f"🎯 **Status:** **{tp_label} HIT**\n"
+                f"💵 **Price:** ${price:.2f}\n"
+                f"📊 **Profit:** **+{current_pips} Pips 🎉**\n"
+                f"⏱ **Duration:** {duration_str}\n"
+                f"───────────────────\n"
+                f"💎 `#{ticker.upper()}` | *GoldAlgo VIP*"
             )
             send_telegram(tp_msg)
-            return "TP Alert Sent", 200
+            return "Partial TP Alert Sent", 200
 
         # ----------------------------------------------------
-        # 2. FULL TRADE CLOSE / SL HIT / REVERSAL EXIT
+        # 2. FULL CLOSE / SL HIT / FINAL EXIT
         # ----------------------------------------------------
-        is_sl_hit = any(sl_term in comment for sl_term in ["SL", "STOP LOSS", "STOPLOSS"])
+        is_sl_hit = any(sl_term in comment for sl_term in ["SL", "STOP LOSS", "STOPLOSS", "STOP"])
         is_close = position == "flat" or (prev_position in ["long", "short"] and position != prev_position) or is_sl_hit
 
         if is_close:
-            stored_pos = memory.get(ticker, {})
-            
-            # Memory file se real stored entry price extract karein
-            if stored_pos and stored_pos.get('entry_price', 0) > 0:
-                entry_price = stored_pos['entry_price']
-                act_action = stored_pos['action']
+            if is_sl_hit and current_pips > 0:
+                current_pips = -abs(current_pips)
+
+            if is_sl_hit or current_pips < 0:
+                close_msg = (
+                    f"🛑 **STOP LOSS HIT** 🛑\n"
+                    f"───────────────────\n"
+                    f"📌 **Symbol:** `#{ticker.upper()}`\n"
+                    f"💵 **Exit Price:** ${price:.2f}\n"
+                    f"📉 **Result:** **{current_pips} Pips Loss 🛑**\n"
+                    f"⏱ **Duration:** {duration_str}\n"
+                    f"───────────────────\n"
+                    f"🛡 *Risk Managed Execution*"
+                )
+            elif any(t in comment for t in ["TP", "TARGET", "PROFIT"]) or current_pips > 0:
+                close_msg = (
+                    f"🔥 **FINAL TARGET HIT** 🔥\n"
+                    f"───────────────────\n"
+                    f"🎯 **Status:** **{tp_label} HIT**\n"
+                    f"💵 **Price:** ${price:.2f}\n"
+                    f"📊 **Profit:** **+{current_pips} Pips 🎉**\n"
+                    f"⏱ **Duration:** {duration_str}\n"
+                    f"───────────────────\n"
+                    f"💎 `#{ticker.upper()}` | *GoldAlgo VIP*"
+                )
             else:
-                entry_price = tv_entry_price if (tv_entry_price > 0 and tv_entry_price != price) else price
-                act_action = "BUY" if prev_position == "long" else "SELL"
+                close_msg = (
+                    f"🟢 **TRADE CLOSED** 🟢\n"
+                    f"───────────────────\n"
+                    f"📌 **Symbol:** `#{ticker.upper()}`\n"
+                    f"💵 **Exit Price:** ${price:.2f}\n"
+                    f"⚖️ **Result:** **0 Pips (Break Even)**\n"
+                    f"⏱ **Duration:** {duration_str}\n"
+                    f"───────────────────\n"
+                    f"🛡 *Capital Saved*"
+                )
 
-            # Pip Calculation
-            if entry_price > 0 and entry_price != price:
-                pips = calculate_pips(ticker, entry_price, price, act_action)
-            else:
-                pips = 0
-
-            # Ensure SL hit always registers negative pips
-            if is_sl_hit and pips > 0:
-                pips = -abs(pips)
-
-            if is_sl_hit or pips < 0:
-                status_title = "🛑 **STOP LOSS HIT** 🛑" if is_sl_hit else "🔴 **TRADE CLOSED** 🔴"
-                pnl_text = f"**{pips} Pips Loss** 🛑"
-            elif tp_target or pips > 0:
-                status_title = f"🎯 **TAKE PROFIT HIT ({tp_target if tp_target else ''})** 🎯" if tp_target else "🟢 **TRADE CLOSED** 🟢"
-                pnl_text = f"**+{pips} Pips Profit** 🎉"
-            else:
-                status_title = "🟢 **TRADE CLOSED** 🟢"
-                pnl_text = f"**0 Pips (Break Even)** ⚖️"
-
-            close_msg = (
-                f"{status_title}\n\n"
-                f"📌 **Symbol:** {ticker}\n"
-                f"➡️ **Type:** {act_action}\n"
-                f"💵 **Entry Price:** ${entry_price:.2f}\n"
-                f"💵 **Exit Price:** ${price:.2f}\n"
-                f"───────────────────\n"
-                f"📊 **Result:** {pnl_text}"
-            )
-            
             send_telegram(close_msg)
 
             if position == "flat":
@@ -180,56 +206,27 @@ def webhook():
                 return "Close alert processed", 200
 
         # ----------------------------------------------------
-        # 3. NEW SIGNAL / REVERSAL OPEN (BUY / SELL)
+        # 3. NEW SIGNAL OPEN
         # ----------------------------------------------------
         new_action = "BUY" if position == "long" or "buy" in raw_action else "SELL"
 
-        # Naye order ki exact price persistent memory me lock karein
         memory[ticker] = {
             'action': new_action,
-            'entry_price': price
+            'entry_price': price,
+            'timestamp': time.time()
         }
         save_memory(memory)
 
-        pip_step = 0.10 if "XAU" in ticker.upper() or "GOLD" in ticker.upper() else 0.0001
-        sl_pips = 100
-        tp1_pips = 100
-        tp2_pips = 250
-        tp3_pips = 450
-        tp4_pips = 700
-
-        if new_action == "BUY":
-            sl_price = price - (sl_pips * pip_step)
-            tp1_price = price + (tp1_pips * pip_step)
-            tp2_price = price + (tp2_pips * pip_step)
-            tp3_price = price + (tp3_pips * pip_step)
-            tp4_price = price + (tp4_pips * pip_step)
-        else:
-            sl_price = price + (sl_pips * pip_step)
-            tp1_price = price - (tp1_pips * pip_step)
-            tp2_price = price - (tp2_pips * pip_step)
-            tp3_price = price - (tp3_pips * pip_step)
-            tp4_price = price - (tp4_pips * pip_step)
-
-        message = (
-            f"🚨 **TRADING SIGNAL** 🚨\n\n"
-            f"📌 **Symbol:** {ticker}\n"
-            f"➡️ **Action:** {new_action}\n"
-            f"💵 **Entry Price:** ${price:.2f}\n\n"
-            f"🎯 **TAKE PROFIT TARGETS**\n"
-            f"• TP1 : {tp1_price:.2f} | +{tp1_pips} pips\n"
-            f"• TP2 : {tp2_price:.2f} | +{tp2_pips} pips\n"
-            f"• TP3 : {tp3_price:.2f} | +{tp3_pips} pips\n"
-            f"• TP4 : {tp4_price:.2f} | +{tp4_pips} pips\n\n"
-            f"🛑 **Stop Loss :** {sl_price:.2f} | -{sl_pips} pips\n\n"
-            f"📌 **EXECUTION PLAN**\n"
-            f"• Enter only within the given entry area\n"
-            f"• Secure partial profit at TP1 / TP2\n"
-            f"• Once in profit, activate Break Even\n"
-            f"• Accept the stop loss if SL is hit - do not revenge trade"
+        signal_msg = (
+            f"⚡️ **NEW TRADE SIGNAL** ⚡️\n"
+            f"───────────────────\n"
+            f"📌 **Symbol:** `#{ticker.upper()}`\n"
+            f"📈 **Action:** **{new_action}**\n"
+            f"💵 **Entry Price:** ${price:.2f}\n"
+            f"───────────────────\n"
+            f"⚡ *Automated Execution Active*"
         )
-
-        send_telegram(message)
+        send_telegram(signal_msg)
         return "OK", 200
 
     except Exception as e:
