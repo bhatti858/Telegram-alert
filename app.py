@@ -1,3 +1,5 @@
+import json
+import os
 from flask import Flask, request
 import requests
 
@@ -9,8 +11,27 @@ app = Flask(__name__)
 TELEGRAM_BOT_TOKEN = "8804297584:AAHSSJ9VwCk3dIZlVvh3p6YjP0J5i0B5gi0"  # Replace with your @BotFather token
 TELEGRAM_CHAT_ID = "-1004481939466"         # Your Chat ID
 
-# Memory store to track actual entry prices
-POSITION_STORE = {}
+MEMORY_FILE = "trade_memory.json"
+
+
+def load_memory():
+    """Disk se saved trade positions load karta hai"""
+    if os.path.exists(MEMORY_FILE):
+        try:
+            with open(MEMORY_FILE, 'r') as f:
+                return json.load(f)
+        except Exception:
+            return {}
+    return {}
+
+
+def save_memory(data):
+    """Disk par trade position save karta hai taake Render restart par delete na ho"""
+    try:
+        with open(MEMORY_FILE, 'w') as f:
+            json.dump(data, f)
+    except Exception as e:
+        print(f"Error saving memory: {e}")
 
 
 def send_telegram(message):
@@ -25,22 +46,22 @@ def send_telegram(message):
 
 def calculate_pips(symbol, entry_price, exit_price, trade_type):
     """
-    Accurate Pip Calculation Engine
-    For Gold (XAUUSD): $1.00 move = 10 pips ($0.10 = 1 pip)
-    For standard Forex pairs: 1 pip = 0.0001 (or 0.01 for JPY pairs)
+    100% Precise Pip Calculation Engine
+    For Gold (XAUUSD): $0.10 price difference = 1 pip
     """
-    diff = exit_price - entry_price if trade_type == "BUY" else entry_price - exit_price
+    trade_type_upper = trade_type.upper()
     
+    if trade_type_upper == "BUY":
+        diff = exit_price - entry_price
+    else:  # SELL
+        diff = entry_price - exit_price
+
     symbol_upper = symbol.upper()
-    
     if "XAU" in symbol_upper or "GOLD" in symbol_upper:
-        # 1 Gold Pip = $0.10 price difference
         pips = diff / 0.10
     elif "JPY" in symbol_upper:
-        # JPY pairs: 1 pip = 0.01
         pips = diff / 0.01
     else:
-        # Standard Forex pairs: 1 pip = 0.0001
         pips = diff / 0.0001
 
     return round(pips)
@@ -48,7 +69,7 @@ def calculate_pips(symbol, entry_price, exit_price, trade_type):
 
 @app.route('/')
 def home():
-    return "Accurate Pip Calculation Bot Active!", 200
+    return "Persistent Trade Memory & Accurate Pips Bot Active!", 200
 
 
 @app.route('/webhook', methods=['GET', 'POST'])
@@ -74,6 +95,8 @@ def webhook():
         prev_position = str(data.get('prev_position', '')).lower()
         raw_action = str(data.get('action', '')).lower()
 
+        memory = load_memory()
+        
         # ----------------------------------------------------
         # 1. SPECIFIC TAKE PROFIT (TP1, TP2, TP3, TP4) DETECTION
         # ----------------------------------------------------
@@ -109,20 +132,25 @@ def webhook():
         is_close = position == "flat" or (prev_position in ["long", "short"] and position != prev_position) or is_sl_hit
 
         if is_close:
-            stored_pos = POSITION_STORE.get(ticker)
+            stored_pos = memory.get(ticker, {})
             
+            # Memory file se real stored entry price extract karein
             if stored_pos and stored_pos.get('entry_price', 0) > 0:
                 entry_price = stored_pos['entry_price']
                 act_action = stored_pos['action']
             else:
-                entry_price = tv_entry_price if tv_entry_price > 0 else price
+                entry_price = tv_entry_price if (tv_entry_price > 0 and tv_entry_price != price) else price
                 act_action = "BUY" if prev_position == "long" else "SELL"
 
-            # Exact Pip Calculation
+            # Pip Calculation
             if entry_price > 0 and entry_price != price:
                 pips = calculate_pips(ticker, entry_price, price, act_action)
             else:
                 pips = 0
+
+            # Ensure SL hit always registers negative pips
+            if is_sl_hit and pips > 0:
+                pips = -abs(pips)
 
             if is_sl_hit or pips < 0:
                 status_title = "🛑 **STOP LOSS HIT** 🛑" if is_sl_hit else "🔴 **TRADE CLOSED** 🔴"
@@ -147,7 +175,8 @@ def webhook():
             send_telegram(close_msg)
 
             if position == "flat":
-                POSITION_STORE.pop(ticker, None)
+                memory.pop(ticker, None)
+                save_memory(memory)
                 return "Close alert processed", 200
 
         # ----------------------------------------------------
@@ -155,10 +184,12 @@ def webhook():
         # ----------------------------------------------------
         new_action = "BUY" if position == "long" or "buy" in raw_action else "SELL"
 
-        POSITION_STORE[ticker] = {
+        # Naye order ki exact price persistent memory me lock karein
+        memory[ticker] = {
             'action': new_action,
             'entry_price': price
         }
+        save_memory(memory)
 
         pip_step = 0.10 if "XAU" in ticker.upper() or "GOLD" in ticker.upper() else 0.0001
         sl_pips = 100
