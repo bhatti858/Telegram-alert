@@ -26,31 +26,51 @@ def webhook():
             return "No JSON received", 400
 
         ticker = data.get('ticker', 'XAUUSD')
-        raw_action = str(data.get('action', '')).upper()
         price = float(data.get('price', 0))
 
-        # 1. POSITION CLOSE / EXIT ALERT
-        if any(term in raw_action for term in ["FLAT", "CLOSE", "EXIT"]):
+        # Position States (long, short, flat)
+        position = str(data.get('position', '')).lower()
+        prev_position = str(data.get('prev_position', '')).lower()
+        raw_action = str(data.get('action', '')).lower()
+
+        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+
+        # ----------------------------------------------------
+        # SCENARIO 1: AGAR TRADE POORI TARAH CLOSE (FLAT) HO GAI HAI
+        # ----------------------------------------------------
+        if position == "flat":
             close_message = (
-                f"ℹ️ **POSITION CLOSED / EXITED** ℹ️\n\n"
+                f"ℹ️ **POSITION CLOSED** ℹ️\n\n"
                 f"📌 **Symbol:** {ticker}\n"
                 f"💵 **Exit Price:** ${price:.2f}\n"
-                f"📝 **Status:** Trade closed. Waiting for next signal."
+                f"📝 **Status:** Previous {prev_position.upper()} trade has been closed."
             )
-            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
             requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": close_message, "parse_mode": "Markdown"})
             return "Closed alert sent", 200
 
-        # 2. NEW BUY / SELL SIGNAL ALERT
-        action = "BUY" if "BUY" in raw_action else "SELL"
+        # ----------------------------------------------------
+        # SCENARIO 2: AGAR POSITION REVERSE HUI HAI (e.g. Buy closed & Sell opened)
+        # ----------------------------------------------------
+        if prev_position in ["long", "short"] and prev_position != position:
+            prev_text = "BUY" if prev_position == "long" else "SELL"
+            close_msg = (
+                f"ℹ️ **PREVIOUS TRADE CLOSED** ℹ️\n\n"
+                f"📌 **Symbol:** {ticker}\n"
+                f"💵 **Exit Price:** ${price:.2f}\n"
+                f"📝 **Status:** {prev_text} trade closed due to signal reversal."
+            )
+            requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": close_msg, "parse_mode": "Markdown"})
 
-        # Pips Config (XAUUSD: 1 Pip = $0.10)
+        # ----------------------------------------------------
+        # SCENARIO 3: NAYI TRADE KA SIGNAL (BUY / SELL)
+        # ----------------------------------------------------
+        action = "BUY" if position == "long" or "buy" in raw_action else "SELL"
+
         sl_pips = 100
         tp1_pips = 100
         tp2_pips = 250
         tp3_pips = 450
         tp4_pips = 700
-
         pip_value = 0.10
 
         if action == "BUY":
@@ -66,7 +86,6 @@ def webhook():
             tp3_price = price - (tp3_pips * pip_value)
             tp4_price = price - (tp4_pips * pip_value)
 
-        # Telegram Signal Message
         message = (
             f"🚨 **TRADING SIGNAL** 🚨\n\n"
             f"📌 **Symbol:** {ticker}\n"
@@ -85,14 +104,7 @@ def webhook():
             f"• Accept the stop loss if SL is hit - do not revenge trade"
         )
 
-        url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message,
-            "parse_mode": "Markdown"
-        }
-
-        requests.post(url, json=payload)
+        requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"})
         return "OK", 200
 
     except Exception as e:
