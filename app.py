@@ -11,19 +11,30 @@ app = Flask(__name__)
 TELEGRAM_BOT_TOKEN = "8804297584:AAHSSJ9VwCk3dIZlVvh3p6YjP0J5i0B5gi0"  # Yahan apna @BotFather token paste karein
 TELEGRAM_CHAT_ID = "-1004481939466"         # Aapki Chat ID
 
+
 # ----------------------------------------------------
-# DATABASE SETUP (Pips Record Store Karne Ke Liye)
+# DATABASE SETUP (Active Trade & Weekly Pips Record)
 # ----------------------------------------------------
 def init_db():
     conn = sqlite3.connect('pips_data.db')
     cursor = conn.cursor()
+    # Weekly report ke liye logs
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS trade_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
             ticker TEXT,
             event_type TEXT,
-            pips INTEGER
+            pips REAL
+        )
+    ''')
+    # Active trade save karne ke liye
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS active_position (
+            ticker TEXT PRIMARY KEY,
+            action TEXT,
+            entry_price REAL,
+            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     conn.commit()
@@ -44,6 +55,41 @@ def log_pips(ticker, event_type, pips):
     except Exception as e:
         print(f"Database Error: {e}")
 
+def save_active_position(ticker, action, entry_price):
+    try:
+        conn = sqlite3.connect('pips_data.db')
+        cursor = conn.cursor()
+        cursor.execute('''
+            INSERT OR REPLACE INTO active_position (ticker, action, entry_price, timestamp)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ''', (ticker, action, entry_price))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error saving active position: {e}")
+
+def get_active_position(ticker):
+    try:
+        conn = sqlite3.connect('pips_data.db')
+        cursor = conn.cursor()
+        cursor.execute('SELECT action, entry_price FROM active_position WHERE ticker = ?', (ticker,))
+        row = cursor.fetchone()
+        conn.close()
+        return row
+    except Exception as e:
+        print(f"Error fetching active position: {e}")
+        return None
+
+def clear_active_position(ticker):
+    try:
+        conn = sqlite3.connect('pips_data.db')
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM active_position WHERE ticker = ?', (ticker,))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"Error clearing active position: {e}")
+
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
@@ -56,7 +102,7 @@ def send_telegram(message):
 
 @app.route('/')
 def home():
-    return "Bot & Weekly Reporter Active!", 200
+    return "Bot with PnL Calculation is Active!", 200
 
 
 @app.route('/webhook', methods=['GET', 'POST'])
@@ -71,78 +117,68 @@ def webhook():
 
         ticker = data.get('ticker', 'XAUUSD')
         price = float(data.get('price', 0))
-        comment = str(data.get('comment', '')).upper()
         position = str(data.get('position', '')).lower()
         prev_position = str(data.get('prev_position', '')).lower()
         raw_action = str(data.get('action', '')).lower()
 
-        # ----------------------------------------------------
-        # 1. AGAR TP YA SL HIT HOTA HAI
-        # ----------------------------------------------------
-        if any(target in comment for target in ["TP1", "TP2", "TP3", "TP4", "SL", "TAKE PROFIT", "STOP LOSS"]):
-            pips = 0
-            if "TP1" in comment:
-                pips = 100
-            elif "TP2" in comment:
-                pips = 250
-            elif "TP3" in comment:
-                pips = 450
-            elif "TP4" in comment:
-                pips = 700
-            elif "SL" in comment or "STOP LOSS" in comment:
-                pips = -100
+        pip_value = 0.10  # XAUUSD: $0.10 = 1 Pip
 
-            # DB me save karein
-            log_pips(ticker, comment, pips)
-
-            status_icon = "🎯" if pips > 0 else "🛑"
-            tp_sl_msg = (
-                f"{status_icon} **TARGET UPDATE / EXIT** {status_icon}\n\n"
-                f"📌 **Symbol:** {ticker}\n"
-                f"⚡ **Event:** {comment}\n"
-                f"💵 **Exit Price:** ${price:.2f}\n"
-                f"📊 **Result:** {'+' if pips > 0 else ''}{pips} Pips"
-            )
-            send_telegram(tp_sl_msg)
-            return "TP/SL alert sent", 200
+        active_trade = get_active_position(ticker)
 
         # ----------------------------------------------------
-        # 2. FULL POSITION CLOSE (FLAT)
+        # 1. TRADE CLOSE / EXIT / REVERSAL PAR P&L CALCULATE KARNA
         # ----------------------------------------------------
-        if position == "flat":
-            close_message = (
-                f"ℹ️ **POSITION CLOSED** ℹ️\n\n"
-                f"📌 **Symbol:** {ticker}\n"
-                f"💵 **Exit Price:** ${price:.2f}\n"
-                f"📝 **Status:** Trade exited."
-            )
-            send_telegram(close_message)
-            return "Closed alert sent", 200
+        if position == "flat" or (prev_position in ["long", "short"] and prev_position != position):
+            if active_trade:
+                act_action, entry_price = active_trade
+
+                # Calculate Exact Pips
+                if act_action == "BUY":
+                    pips = round((price - entry_price) / pip_value)
+                else:  # SELL
+                    pips = round((entry_price - price) / pip_value)
+
+                # Save pips for weekly report
+                log_pips(ticker, "CLOSED_TRADE", pips)
+                clear_active_position(ticker)
+
+                if pips > 0:
+                    status_icon = "🟢"
+                    pnl_text = f"**+{pips} Pips Profit** 🎉"
+                elif pips < 0:
+                    status_icon = "🔴"
+                    pnl_text = f"**{pips} Pips Loss** 🛑"
+                else:
+                    status_icon = "⚪"
+                    pnl_text = f"**0 Pips (Break Even)** ⚖️"
+
+                close_msg = (
+                    f"{status_icon} **TRADE CLOSED / EXITED** {status_icon}\n\n"
+                    f"📌 **Symbol:** {ticker}\n"
+                    f"➡️ **Type:** {act_action}\n"
+                    f"💵 **Entry Price:** ${entry_price:.2f}\n"
+                    f"💵 **Exit Price:** ${price:.2f}\n"
+                    f"───────────────────\n"
+                    f"📊 **Result:** {pnl_text}"
+                )
+                send_telegram(close_msg)
+
+                if position == "flat":
+                    return "Flat alert sent with PnL", 200
 
         # ----------------------------------------------------
-        # 3. POSITION REVERSAL (Buy closed & Sell opened)
-        # ----------------------------------------------------
-        if prev_position in ["long", "short"] and prev_position != position:
-            prev_text = "BUY" if prev_position == "long" else "SELL"
-            close_msg = (
-                f"ℹ️ **PREVIOUS TRADE CLOSED** ℹ️\n\n"
-                f"📌 **Symbol:** {ticker}\n"
-                f"💵 **Exit Price:** ${price:.2f}\n"
-                f"📝 **Status:** {prev_text} closed due to signal reversal."
-            )
-            send_telegram(close_msg)
-
-        # ----------------------------------------------------
-        # 4. NEW TRADE SIGNAL (BUY / SELL)
+        # 2. NEW SIGNAL (BUY / SELL)
         # ----------------------------------------------------
         action = "BUY" if position == "long" or "buy" in raw_action else "SELL"
+
+        # Save active trade entry price to DB
+        save_active_position(ticker, action, price)
 
         sl_pips = 100
         tp1_pips = 100
         tp2_pips = 250
         tp3_pips = 450
         tp4_pips = 700
-        pip_value = 0.10
 
         if action == "BUY":
             sl_price = price - (sl_pips * pip_value)
@@ -184,7 +220,7 @@ def webhook():
 
 
 # ----------------------------------------------------
-# 5. WEEKLY REPORT ROUTE
+# 3. WEEKLY REPORT ROUTE
 # ----------------------------------------------------
 @app.route('/weekly-report', methods=['GET'])
 def weekly_report():
@@ -192,7 +228,6 @@ def weekly_report():
         conn = sqlite3.connect('pips_data.db')
         cursor = conn.cursor()
 
-        # Pichle 7 dino ka data extract karna
         seven_days_ago = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d %H:%M:%S')
         cursor.execute('SELECT pips FROM trade_logs WHERE timestamp >= ?', (seven_days_ago,))
         records = cursor.fetchall()
