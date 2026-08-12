@@ -9,7 +9,7 @@ app = Flask(__name__)
 TELEGRAM_BOT_TOKEN = "8804297584:AAHSSJ9VwCk3dIZlVvh3p6YjP0J5i0B5gi0"  # Replace with your @BotFather token
 TELEGRAM_CHAT_ID = "-1004481939466"         # Your Chat ID
 
-# Memory store to track actual entry prices during reversals
+# Memory store to track actual entry prices
 POSITION_STORE = {}
 
 
@@ -23,9 +23,32 @@ def send_telegram(message):
     requests.post(url, json=payload)
 
 
+def calculate_pips(symbol, entry_price, exit_price, trade_type):
+    """
+    Accurate Pip Calculation Engine
+    For Gold (XAUUSD): $1.00 move = 10 pips ($0.10 = 1 pip)
+    For standard Forex pairs: 1 pip = 0.0001 (or 0.01 for JPY pairs)
+    """
+    diff = exit_price - entry_price if trade_type == "BUY" else entry_price - exit_price
+    
+    symbol_upper = symbol.upper()
+    
+    if "XAU" in symbol_upper or "GOLD" in symbol_upper:
+        # 1 Gold Pip = $0.10 price difference
+        pips = diff / 0.10
+    elif "JPY" in symbol_upper:
+        # JPY pairs: 1 pip = 0.01
+        pips = diff / 0.01
+    else:
+        # Standard Forex pairs: 1 pip = 0.0001
+        pips = diff / 0.0001
+
+    return round(pips)
+
+
 @app.route('/')
 def home():
-    return "English Multi-TP Trading Bot Active!", 200
+    return "Accurate Pip Calculation Bot Active!", 200
 
 
 @app.route('/webhook', methods=['GET', 'POST'])
@@ -51,8 +74,6 @@ def webhook():
         prev_position = str(data.get('prev_position', '')).lower()
         raw_action = str(data.get('action', '')).lower()
 
-        pip_value = 0.10  # XAUUSD Pip value
-        
         # ----------------------------------------------------
         # 1. SPECIFIC TAKE PROFIT (TP1, TP2, TP3, TP4) DETECTION
         # ----------------------------------------------------
@@ -88,7 +109,6 @@ def webhook():
         is_close = position == "flat" or (prev_position in ["long", "short"] and position != prev_position) or is_sl_hit
 
         if is_close:
-            # Retrieve real saved entry price from memory
             stored_pos = POSITION_STORE.get(ticker)
             
             if stored_pos and stored_pos.get('entry_price', 0) > 0:
@@ -98,11 +118,9 @@ def webhook():
                 entry_price = tv_entry_price if tv_entry_price > 0 else price
                 act_action = "BUY" if prev_position == "long" else "SELL"
 
+            # Exact Pip Calculation
             if entry_price > 0 and entry_price != price:
-                if act_action == "BUY":
-                    pips = round((price - entry_price) / pip_value)
-                else:
-                    pips = round((entry_price - price) / pip_value)
+                pips = calculate_pips(ticker, entry_price, price, act_action)
             else:
                 pips = 0
 
@@ -137,12 +155,12 @@ def webhook():
         # ----------------------------------------------------
         new_action = "BUY" if position == "long" or "buy" in raw_action else "SELL"
 
-        # Save new open position & entry price in memory
         POSITION_STORE[ticker] = {
             'action': new_action,
             'entry_price': price
         }
 
+        pip_step = 0.10 if "XAU" in ticker.upper() or "GOLD" in ticker.upper() else 0.0001
         sl_pips = 100
         tp1_pips = 100
         tp2_pips = 250
@@ -150,17 +168,17 @@ def webhook():
         tp4_pips = 700
 
         if new_action == "BUY":
-            sl_price = price - (sl_pips * pip_value)
-            tp1_price = price + (tp1_pips * pip_value)
-            tp2_price = price + (tp2_pips * pip_value)
-            tp3_price = price + (tp3_pips * pip_value)
-            tp4_price = price + (tp4_pips * pip_value)
+            sl_price = price - (sl_pips * pip_step)
+            tp1_price = price + (tp1_pips * pip_step)
+            tp2_price = price + (tp2_pips * pip_step)
+            tp3_price = price + (tp3_pips * pip_step)
+            tp4_price = price + (tp4_pips * pip_step)
         else:
-            sl_price = price + (sl_pips * pip_value)
-            tp1_price = price - (tp1_pips * pip_value)
-            tp2_price = price - (tp2_pips * pip_value)
-            tp3_price = price - (tp3_pips * pip_value)
-            tp4_price = price - (tp4_pips * pip_value)
+            sl_price = price + (sl_pips * pip_step)
+            tp1_price = price - (tp1_pips * pip_step)
+            tp2_price = price - (tp2_pips * pip_step)
+            tp3_price = price - (tp3_pips * pip_step)
+            tp4_price = price - (tp4_pips * pip_step)
 
         message = (
             f"🚨 **TRADING SIGNAL** 🚨\n\n"
