@@ -13,7 +13,7 @@ app = Flask(__name__)
 # ============================================================
 
 TELEGRAM_BOT_TOKEN = os.getenv("8804297584:AAH3J1NTc4VhRS3ZQluDJZR7-K0grTrbOEg", "")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+TELEGRAM_CHAT_ID = os.getenv("-1004481939466", "")
 BRAND_TAG = os.getenv("BRAND_TAG", "@bhatti3273")
 
 # Secret for Render Cron Job
