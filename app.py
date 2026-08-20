@@ -16,12 +16,15 @@ TELEGRAM_BOT_TOKEN = os.getenv("8804297584:AAH3J1NTc4VhRS3ZQluDJZR7-K0grTrbOEg",
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 BRAND_TAG = os.getenv("BRAND_TAG", "@bhatti3273")
 
+# Secret for Render Cron Job
+CRON_SECRET = os.getenv("CRON_SECRET", "")
+
 MEMORY_FILE = "trade_memory.json"
 HISTORY_FILE = "trade_history.json"
 
 
 # ============================================================
-# TP / SL SETTINGS
+# SETTINGS
 # ============================================================
 
 GOLD_TP_PIPS = [100, 250, 450, 700]
@@ -36,18 +39,21 @@ FOREX_SL_PIPS = 100
 # ============================================================
 
 def load_json(filename, default):
+
     if not os.path.exists(filename):
         return default
 
     try:
         with open(filename, "r", encoding="utf-8") as f:
             return json.load(f)
+
     except Exception as e:
-        print(f"[JSON LOAD ERROR] {filename}: {e}")
+        print(f"[LOAD ERROR] {filename}: {e}")
         return default
 
 
 def save_json(filename, data):
+
     try:
         with open(filename, "w", encoding="utf-8") as f:
             json.dump(
@@ -56,10 +62,11 @@ def save_json(filename, data):
                 indent=2,
                 ensure_ascii=False
             )
+
         return True
 
     except Exception as e:
-        print(f"[JSON SAVE ERROR] {filename}: {e}")
+        print(f"[SAVE ERROR] {filename}: {e}")
         return False
 
 
@@ -86,11 +93,11 @@ def save_history(data):
 def send_telegram(message):
 
     if not TELEGRAM_BOT_TOKEN:
-        print("[TELEGRAM ERROR] TELEGRAM_BOT_TOKEN is missing")
+        print("[TELEGRAM ERROR] Bot token missing")
         return False
 
     if not TELEGRAM_CHAT_ID:
-        print("[TELEGRAM ERROR] TELEGRAM_CHAT_ID is missing")
+        print("[TELEGRAM ERROR] Chat ID missing")
         return False
 
     url = (
@@ -105,10 +112,11 @@ def send_telegram(message):
     }
 
     try:
+
         response = requests.post(
             url,
             json=payload,
-            timeout=15
+            timeout=20
         )
 
         print(
@@ -120,12 +128,14 @@ def send_telegram(message):
         return response.status_code == 200
 
     except Exception as e:
+
         print("[TELEGRAM ERROR]", e)
+
         return False
 
 
 # ============================================================
-# SYMBOL
+# SYMBOL / PIP
 # ============================================================
 
 def is_gold(symbol):
@@ -137,10 +147,6 @@ def is_gold(symbol):
         or "GOLD" in symbol
     )
 
-
-# ============================================================
-# PIP SIZE
-# ============================================================
 
 def pip_size(symbol):
 
@@ -156,7 +162,7 @@ def pip_size(symbol):
 
 
 # ============================================================
-# CALCULATE PIPS
+# PIPS CALCULATION
 # ============================================================
 
 def calculate_pips(
@@ -170,6 +176,7 @@ def calculate_pips(
 
     if action.upper() == "BUY":
         difference = exit_price - entry_price
+
     else:
         difference = entry_price - exit_price
 
@@ -179,7 +186,7 @@ def calculate_pips(
 
 
 # ============================================================
-# CALCULATE PRICE MOVE
+# DOLLAR PRICE MOVE
 # ============================================================
 
 def calculate_dollar_move(
@@ -190,6 +197,7 @@ def calculate_dollar_move(
 
     if action.upper() == "BUY":
         move = exit_price - entry_price
+
     else:
         move = entry_price - exit_price
 
@@ -208,34 +216,32 @@ def calculate_levels(
 
     if is_gold(symbol):
 
-        tp_values = GOLD_TP_PIPS
+        tp_pips = GOLD_TP_PIPS
         sl_pips = GOLD_SL_PIPS
 
     else:
 
-        tp_values = FOREX_TP_PIPS
+        tp_pips = FOREX_TP_PIPS
         sl_pips = FOREX_SL_PIPS
 
     size = pip_size(symbol)
 
-    action = action.upper()
-
-    if action == "BUY":
+    if action.upper() == "BUY":
 
         tp1 = entry_price + (
-            tp_values[0] * size
+            tp_pips[0] * size
         )
 
         tp2 = entry_price + (
-            tp_values[1] * size
+            tp_pips[1] * size
         )
 
         tp3 = entry_price + (
-            tp_values[2] * size
+            tp_pips[2] * size
         )
 
         tp4 = entry_price + (
-            tp_values[3] * size
+            tp_pips[3] * size
         )
 
         sl = entry_price - (
@@ -245,19 +251,19 @@ def calculate_levels(
     else:
 
         tp1 = entry_price - (
-            tp_values[0] * size
+            tp_pips[0] * size
         )
 
         tp2 = entry_price - (
-            tp_values[1] * size
+            tp_pips[1] * size
         )
 
         tp3 = entry_price - (
-            tp_values[2] * size
+            tp_pips[2] * size
         )
 
         tp4 = entry_price - (
-            tp_values[3] * size
+            tp_pips[3] * size
         )
 
         sl = entry_price + (
@@ -271,38 +277,6 @@ def calculate_levels(
         "tp4": round(tp4, 5),
         "sl": round(sl, 5)
     }
-
-
-# ============================================================
-# DURATION
-# ============================================================
-
-def format_duration(timestamp):
-
-    if not timestamp:
-        return "N/A"
-
-    try:
-
-        seconds = int(
-            time.time() - float(timestamp)
-        )
-
-        if seconds < 60:
-            return "1 Min"
-
-        minutes = seconds // 60
-
-        if minutes < 60:
-            return f"{minutes} Mins"
-
-        hours = minutes // 60
-        remaining = minutes % 60
-
-        return f"{hours}h {remaining}m"
-
-    except Exception:
-        return "N/A"
 
 
 # ============================================================
@@ -350,7 +324,7 @@ def create_trade(
 
 
 # ============================================================
-# NEW SIGNAL TELEGRAM
+# NEW SIGNAL ALERT
 # ============================================================
 
 def send_new_signal(trade):
@@ -390,15 +364,12 @@ def send_tp_alert(
 
     symbol = trade["symbol"]
     action = trade["action"]
+
     entry = float(
         trade["entry_price"]
     )
 
     price = float(price)
-
-    # ----------------------------------------
-    # PIPS
-    # ----------------------------------------
 
     pips = calculate_pips(
         symbol,
@@ -409,35 +380,23 @@ def send_tp_alert(
 
     pips = abs(pips)
 
-    # ----------------------------------------
-    # ACTUAL PRICE MOVE IN $
-    # ----------------------------------------
-
     dollar_move = calculate_dollar_move(
         entry,
         price,
         action
     )
 
-    # ----------------------------------------
-    # TP NUMBER
-    # ----------------------------------------
-
+    # TP number mil gaya
     if tp_number in [1, 2, 3, 4]:
 
         title = (
             f"🔥 *TP{tp_number} HIT* 🔥"
         )
 
+    # TP number nahi mila
     else:
 
-        title = (
-            "🔥 *TP HIT* 🔥"
-        )
-
-    # ----------------------------------------
-    # MESSAGE
-    # ----------------------------------------
+        title = "🔥 *TP HIT* 🔥"
 
     message = (
         f"{title}\n"
@@ -474,17 +433,103 @@ def send_sl_alert(
 
     pips = -abs(pips)
 
+    move = abs(
+        price - entry
+    )
+
     message = (
         "🛑 *STOP LOSS HIT* 🛑\n"
         "───────────────────\n"
         f"📌 *#{symbol}*\n"
         f"📉 *Loss:* {pips} Pips\n"
-        f"💵 *Move:* -${abs(price - entry):.2f}\n"
+        f"💵 *Move:* -${move:.2f}\n"
         "───────────────────\n"
         f"🛡 `{BRAND_TAG}`"
     )
 
     return send_telegram(message)
+
+
+# ============================================================
+# TP DETECTION
+# ============================================================
+
+def detect_tp(comment):
+
+    comment = str(
+        comment or ""
+    ).upper()
+
+    if (
+        "TP4" in comment
+        or "TARGET 4" in comment
+        or "TARGET4" in comment
+        or "TP 4" in comment
+        or "TAKE PROFIT 4" in comment
+    ):
+        return 4
+
+    if (
+        "TP3" in comment
+        or "TARGET 3" in comment
+        or "TARGET3" in comment
+        or "TP 3" in comment
+        or "TAKE PROFIT 3" in comment
+    ):
+        return 3
+
+    if (
+        "TP2" in comment
+        or "TARGET 2" in comment
+        or "TARGET2" in comment
+        or "TP 2" in comment
+        or "TAKE PROFIT 2" in comment
+    ):
+        return 2
+
+    if (
+        "TP1" in comment
+        or "TARGET 1" in comment
+        or "TARGET1" in comment
+        or "TP 1" in comment
+        or "TAKE PROFIT 1" in comment
+    ):
+        return 1
+
+    # Generic TP
+    if (
+        "TP" in comment
+        or "TARGET" in comment
+        or "TAKE PROFIT" in comment
+        or "PROFIT" in comment
+    ):
+        return None
+
+    return None
+
+
+# ============================================================
+# SL DETECTION
+# ============================================================
+
+def detect_sl(comment):
+
+    comment = str(
+        comment or ""
+    ).upper()
+
+    terms = [
+        "STOP LOSS",
+        "STOPLOSS",
+        "SL HIT",
+        "SL",
+        "STOP"
+    ]
+
+    return any(
+        term in comment
+        for term in terms
+    )
 
 
 # ============================================================
@@ -507,20 +552,26 @@ def save_closed_trade(
     )
 
     if result == "SL":
+
         pips = -abs(pips)
 
     else:
+
         pips = abs(pips)
+
+    now_utc = datetime.now(
+        timezone.utc
+    )
 
     record = {
 
-        "date": datetime.now(
-            timezone.utc
-        ).strftime("%Y-%m-%d"),
+        "date": now_utc.strftime(
+            "%Y-%m-%d"
+        ),
 
-        "time": datetime.now(
-            timezone.utc
-        ).strftime("%H:%M:%S"),
+        "time": now_utc.strftime(
+            "%H:%M:%S"
+        ),
 
         "symbol": trade["symbol"],
 
@@ -554,8 +605,12 @@ def save_closed_trade(
             False
         ),
 
-        "duration": format_duration(
-            trade.get("timestamp")
+        "duration_seconds": int(
+            time.time()
+            - trade.get(
+                "timestamp",
+                time.time()
+            )
         )
     }
 
@@ -567,141 +622,6 @@ def save_closed_trade(
 
 
 # ============================================================
-# DETECT TP
-# ============================================================
-
-def detect_tp(comment):
-
-    comment = str(
-        comment or ""
-    ).upper()
-
-    # TP4
-    if (
-        "TP4" in comment
-        or "TARGET 4" in comment
-        or "TARGET4" in comment
-        or "TP 4" in comment
-        or "TAKE PROFIT 4" in comment
-    ):
-        return 4
-
-    # TP3
-    if (
-        "TP3" in comment
-        or "TARGET 3" in comment
-        or "TARGET3" in comment
-        or "TP 3" in comment
-        or "TAKE PROFIT 3" in comment
-    ):
-        return 3
-
-    # TP2
-    if (
-        "TP2" in comment
-        or "TARGET 2" in comment
-        or "TARGET2" in comment
-        or "TP 2" in comment
-        or "TAKE PROFIT 2" in comment
-    ):
-        return 2
-
-    # TP1
-    if (
-        "TP1" in comment
-        or "TARGET 1" in comment
-        or "TARGET1" in comment
-        or "TP 1" in comment
-        or "TAKE PROFIT 1" in comment
-    ):
-        return 1
-
-    # Generic TP
-    if (
-        "TP" in comment
-        or "TARGET" in comment
-        or "TAKE PROFIT" in comment
-        or "PROFIT" in comment
-    ):
-        return None
-
-    return None
-
-
-# ============================================================
-# DETECT SL
-# ============================================================
-
-def detect_sl(comment):
-
-    comment = str(
-        comment or ""
-    ).upper()
-
-    terms = [
-        "STOP LOSS",
-        "STOPLOSS",
-        "SL HIT",
-        "SL",
-        "STOP"
-    ]
-
-    return any(
-        term in comment
-        for term in terms
-    )
-
-
-# ============================================================
-# PROCESS TP
-# ============================================================
-
-def process_tp(
-    trade,
-    tp_number,
-    price
-):
-
-    # ----------------------------------------
-    # If TP number is known
-    # ----------------------------------------
-
-    if tp_number in [1, 2, 3, 4]:
-
-        key = f"tp{tp_number}_hit"
-
-        # Don't send duplicate alert
-        if trade.get(key, False):
-            return False
-
-        trade[key] = True
-
-        trade[
-            f"tp{tp_number}_time"
-        ] = time.time()
-
-        send_tp_alert(
-            trade,
-            tp_number,
-            price
-        )
-
-        return True
-
-    # ----------------------------------------
-    # Generic TP
-    # ----------------------------------------
-
-    send_tp_alert(
-        trade,
-        None,
-        price
-    )
-
-    return True
-
-
-# ============================================================
 # WEEKLY REPORT
 # ============================================================
 
@@ -709,20 +629,42 @@ def generate_weekly_report():
 
     history = load_history()
 
-    now = datetime.now(
+    # --------------------------------------------------------
+    # UAE CURRENT TIME
+    #
+    # Python standard library:
+    # UAE = UTC + 4
+    # --------------------------------------------------------
+
+    now_utc = datetime.now(
         timezone.utc
     )
 
-    week_start = (
-        now.date()
+    uae_now = (
+        now_utc
+        + timedelta(hours=4)
+    )
+
+    # Previous completed week:
+    #
+    # Monday 00:00
+    # through Sunday 23:59
+    #
+    current_monday = (
+        uae_now.date()
         - timedelta(
-            days=now.weekday()
+            days=uae_now.weekday()
         )
     )
 
-    week_end = (
-        week_start
-        + timedelta(days=6)
+    previous_monday = (
+        current_monday
+        - timedelta(days=7)
+    )
+
+    previous_sunday = (
+        current_monday
+        - timedelta(days=1)
     )
 
     weekly = []
@@ -731,15 +673,15 @@ def generate_weekly_report():
 
         try:
 
-            date = datetime.strptime(
+            trade_date = datetime.strptime(
                 trade["date"],
                 "%Y-%m-%d"
             ).date()
 
             if (
-                week_start
-                <= date
-                <= week_end
+                previous_monday
+                <= trade_date
+                <= previous_sunday
             ):
 
                 weekly.append(
@@ -749,24 +691,27 @@ def generate_weekly_report():
         except Exception:
             continue
 
-    # ----------------------------------------
-    # No trades
-    # ----------------------------------------
+    # --------------------------------------------------------
+    # NO TRADES
+    # --------------------------------------------------------
 
     if not weekly:
 
         return (
             "📊 *WEEKLY TRADING REPORT*\n"
             "───────────────────\n"
-            f"📅 {week_start} → {week_end}\n\n"
+            f"📅 *Week:* "
+            f"{previous_monday.strftime('%d %b')} - "
+            f"{previous_sunday.strftime('%d %b %Y')}\n\n"
+            "📈 *Total Trades:* 0\n"
             "No completed trades this week.\n"
             "───────────────────\n"
             f"💎 `{BRAND_TAG}`"
         )
 
-    # ----------------------------------------
-    # Statistics
-    # ----------------------------------------
+    # --------------------------------------------------------
+    # STATS
+    # --------------------------------------------------------
 
     total = len(weekly)
 
@@ -803,7 +748,7 @@ def generate_weekly_report():
         if result.startswith("TP"):
             wins += 1
 
-        if result == "SL":
+        elif result == "SL":
             losses += 1
 
         if trade.get("tp1_hit"):
@@ -823,7 +768,7 @@ def generate_weekly_report():
 
     win_rate = (
         (wins / total) * 100
-        if total > 0
+        if total
         else 0
     )
 
@@ -847,27 +792,28 @@ def generate_weekly_report():
         else ""
     )
 
-    # ----------------------------------------
-    # Report
-    # ----------------------------------------
+    # --------------------------------------------------------
+    # REPORT
+    # --------------------------------------------------------
 
     report = (
         "📊 *WEEKLY TRADING REPORT*\n"
         "───────────────────\n"
+
         f"📅 *Week:* "
-        f"{week_start.strftime('%d %b')} - "
-        f"{week_end.strftime('%d %b %Y')}\n\n"
+        f"{previous_monday.strftime('%d %b')} - "
+        f"{previous_sunday.strftime('%d %b %Y')}\n\n"
 
         f"📈 *Total Trades:* {total}\n"
         f"✅ *Wins:* {wins}\n"
         f"❌ *Losses:* {losses}\n"
         f"📊 *Win Rate:* {win_rate:.1f}%\n\n"
 
-        f"🎯 *TP1:* {tp1}\n"
-        f"🎯 *TP2:* {tp2}\n"
-        f"🎯 *TP3:* {tp3}\n"
-        f"🎯 *TP4:* {tp4}\n"
-        f"🛑 *SL:* {sl}\n\n"
+        f"🎯 *TP1 Hits:* {tp1}\n"
+        f"🎯 *TP2 Hits:* {tp2}\n"
+        f"🎯 *TP3 Hits:* {tp3}\n"
+        f"🎯 *TP4 Hits:* {tp4}\n"
+        f"🛑 *SL Hits:* {sl}\n\n"
 
         f"💰 *Net Pips:* "
         f"{net_sign}{net_pips:.0f}\n\n"
@@ -920,11 +866,7 @@ def health():
 
         "chat_configured": bool(
             TELEGRAM_CHAT_ID
-        ),
-
-        "time": datetime.now(
-            timezone.utc
-        ).isoformat()
+        )
     })
 
 
@@ -935,18 +877,18 @@ def health():
 @app.route("/test-telegram")
 def test_telegram():
 
-    result = send_telegram(
+    success = send_telegram(
         "✅ *Telegram Test Successful!*\n\n"
         "TradingView Telegram bot is working."
     )
 
     return jsonify({
-        "success": result
+        "success": success
     })
 
 
 # ============================================================
-# WEEKLY REPORT TEST
+# TEST WEEKLY REPORT
 # ============================================================
 
 @app.route("/test-weekly-report")
@@ -954,15 +896,76 @@ def test_weekly_report():
 
     report = generate_weekly_report()
 
-    result = send_telegram(
+    success = send_telegram(
         report
     )
 
     return jsonify({
 
-        "success": result,
+        "success": success,
 
         "report": report
+    })
+
+
+# ============================================================
+# CRON WEEKLY REPORT
+# ============================================================
+
+@app.route("/weekly-report")
+def weekly_report():
+
+    # --------------------------------------------------------
+    # SECURITY
+    # --------------------------------------------------------
+
+    supplied_secret = request.args.get(
+        "secret",
+        ""
+    )
+
+    if CRON_SECRET:
+
+        if supplied_secret != CRON_SECRET:
+
+            return jsonify({
+                "error": "Unauthorized"
+            }), 401
+
+    # --------------------------------------------------------
+    # GENERATE REPORT
+    # --------------------------------------------------------
+
+    report = generate_weekly_report()
+
+    # --------------------------------------------------------
+    # SEND TELEGRAM
+    # --------------------------------------------------------
+
+    success = send_telegram(
+        report
+    )
+
+    if not success:
+
+        return jsonify({
+            "success": False,
+            "error": "Telegram send failed"
+        }), 500
+
+    return jsonify({
+
+        "success": True,
+
+        "message": (
+            "Weekly report sent successfully"
+        ),
+
+        "timezone": "Asia/Dubai",
+
+        "schedule": (
+            "Every Saturday 03:00 AM UAE"
+        )
     })
 
 
@@ -991,7 +994,7 @@ def memory():
 
 
 # ============================================================
-# WEBHOOK
+# TRADINGVIEW WEBHOOK
 # ============================================================
 
 @app.route(
@@ -1000,10 +1003,6 @@ def memory():
 )
 def webhook():
 
-    # ----------------------------------------
-    # GET
-    # ----------------------------------------
-
     if request.method == "GET":
 
         return jsonify({
@@ -1011,10 +1010,6 @@ def webhook():
         })
 
     try:
-
-        # ------------------------------------
-        # RECEIVE JSON
-        # ------------------------------------
 
         data = request.get_json(
             silent=True
@@ -1041,9 +1036,9 @@ def webhook():
             "=============================\n"
         )
 
-        # ------------------------------------
+        # ----------------------------------------------------
         # SYMBOL
-        # ------------------------------------
+        # ----------------------------------------------------
 
         ticker = str(
             data.get(
@@ -1055,22 +1050,20 @@ def webhook():
             )
         ).upper()
 
-        # ------------------------------------
+        # ----------------------------------------------------
         # PRICE
-        # ------------------------------------
-
-        price_raw = data.get(
-            "price",
-            data.get(
-                "close",
-                0
-            )
-        )
+        # ----------------------------------------------------
 
         try:
 
             price = float(
-                price_raw
+                data.get(
+                    "price",
+                    data.get(
+                        "close",
+                        0
+                    )
+                )
             )
 
         except Exception:
@@ -1083,9 +1076,9 @@ def webhook():
                 "error": "Invalid price"
             }), 400
 
-        # ------------------------------------
+        # ----------------------------------------------------
         # ACTION
-        # ------------------------------------
+        # ----------------------------------------------------
 
         action_raw = str(
             data.get(
@@ -1115,9 +1108,9 @@ def webhook():
             )
         )
 
-        # ------------------------------------
+        # ----------------------------------------------------
         # MEMORY
-        # ------------------------------------
+        # ----------------------------------------------------
 
         memory = load_memory()
 
@@ -1125,9 +1118,9 @@ def webhook():
             ticker
         )
 
-        # ====================================================
-        # DETERMINE ACTION
-        # ====================================================
+        # ----------------------------------------------------
+        # ACTION
+        # ----------------------------------------------------
 
         if (
             "buy" in action_raw
@@ -1200,7 +1193,6 @@ def webhook():
                 "status": "SL processed"
             })
 
-
         # ====================================================
         # TP
         # ====================================================
@@ -1211,24 +1203,64 @@ def webhook():
                 comment
             )
 
-            # TP event detected
-            if (
+            comment_upper = comment.upper()
+
+            is_tp = (
                 tp_number is not None
-                or (
-                    "TP" in comment.upper()
-                    or "TARGET" in comment.upper()
-                    or "TAKE PROFIT"
-                    in comment.upper()
-                )
-            ):
+                or "TP" in comment_upper
+                or "TARGET" in comment_upper
+                or "TAKE PROFIT"
+                in comment_upper
+                or "PROFIT"
+                in comment_upper
+            )
 
-                process_tp(
-                    existing_trade,
-                    tp_number,
-                    price
-                )
+            if is_tp:
 
-                # TP4 = final target
+                # --------------------------------------------
+                # Known TP
+                # --------------------------------------------
+
+                if tp_number in [1, 2, 3, 4]:
+
+                    key = (
+                        f"tp{tp_number}_hit"
+                    )
+
+                    # Prevent duplicate
+                    # TP alerts
+
+                    if not existing_trade.get(
+                        key,
+                        False
+                    ):
+
+                        existing_trade[
+                            key
+                        ] = True
+
+                        send_tp_alert(
+                            existing_trade,
+                            tp_number,
+                            price
+                        )
+
+                # --------------------------------------------
+                # Unknown TP
+                # --------------------------------------------
+
+                else:
+
+                    send_tp_alert(
+                        existing_trade,
+                        None,
+                        price
+                    )
+
+                # --------------------------------------------
+                # TP4 FINAL
+                # --------------------------------------------
+
                 if tp_number == 4:
 
                     existing_trade[
@@ -1251,10 +1283,11 @@ def webhook():
                 )
 
                 return jsonify({
+
                     "status": "TP processed",
+
                     "tp_number": tp_number
                 })
-
 
         # ====================================================
         # FLAT / CLOSE
@@ -1275,7 +1308,9 @@ def webhook():
 
             if tp_number:
 
-                result = f"TP{tp_number}"
+                result = (
+                    f"TP{tp_number}"
+                )
 
             else:
 
@@ -1299,7 +1334,6 @@ def webhook():
             return jsonify({
                 "status": "Trade closed"
             })
-
 
         # ====================================================
         # NEW SIGNAL
@@ -1352,7 +1386,7 @@ def webhook():
 
 
 # ============================================================
-# MAIN
+# START
 # ============================================================
 
 if __name__ == "__main__":
