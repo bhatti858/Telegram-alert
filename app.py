@@ -1,3 +1,4 @@
+
 import os
 import requests
 
@@ -7,8 +8,10 @@ import requests
 
 TELEGRAM_BOT_TOKEN = os.environ.get("8804297584:AAH3J1NTc4VhRS3ZQluDJZR7-K0grTrbOEg", "").strip()
 
-# Telegram Group / Channel Chat ID
-TELEGRAM_CHAT_ID = "-1004481939466"
+TELEGRAM_CHAT_ID = os.environ.get(
+    "TELEGRAM_CHAT_ID",
+    "-1004481939466"
+).strip()
 
 BRAND_TAG = "@bhatti3273"
 
