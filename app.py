@@ -12,7 +12,7 @@ app = Flask(__name__)
 # =====================================================
 # TELEGRAM CONFIGURATION
 # =====================================================
-TELEGRAM_BOT_TOKEN = os.environ.get("8804297584:AAH3J1NTc4VhRS3ZQluDJZR7-K0grTrbOEg", "").strip()
+TELEGRAM_BOT_TOKEN = os.environ.get("8219130500:AAEmlDN1ZXBAtnyBD0I_yRCADXXuvdbvvVY", "").strip()
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1004481939466").strip()
 
 # =====================================================
