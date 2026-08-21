@@ -125,6 +125,23 @@ def webhook():
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
+@app.route("/weekly-report", methods=["GET", "POST"])
+def weekly_report():
+    """Cron-job se auto-trigger hone wala weekly report endpoint."""
+    report_text = (
+        "<b>📅 WEEKLY PERFORMANCE REPORT</b>\n\n"
+        "<b>Status:</b> All trading systems active\n"
+        "<b>Bot Monitor:</b> Webhook operational & monitoring signals\n\n"
+        "<i>Have a great trading week ahead!</i>"
+    )
+    
+    success = send_telegram(report_text)
+    if success:
+        return jsonify({"status": "success", "message": "Weekly report dispatched to Telegram"}), 200
+    else:
+        return jsonify({"status": "error", "message": "Failed to send weekly report"}), 500
+
+
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
