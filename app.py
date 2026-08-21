@@ -6,7 +6,6 @@ from flask import Flask, request, jsonify
 # =====================================================
 # FLASK APP SETUP
 # =====================================================
-# Gunicorn 'app:app' command ke sath sync rakhne ke liye variable 'app' hai
 app = Flask(__name__)
 
 # =====================================================
@@ -71,9 +70,17 @@ def home():
     }), 200
 
 
-@app.route("/webhook", methods=["POST"])
+@app.route("/webhook", methods=["GET", "POST"])
 def webhook():
-    """TradingView ya kisi bhi automated signal ka POST request receive karta hai."""
+    """TradingView ya kisi bhi automated signal ka request receive karta hai."""
+    # GET Request Handling (405 Method Not Allowed Fix)
+    if request.method == "GET":
+        return jsonify({
+            "status": "online",
+            "message": "Webhook endpoint is active. Send a POST request with payload to trigger alerts."
+        }), 200
+
+    # POST Request Handling
     try:
         data = None
 
@@ -95,7 +102,7 @@ def webhook():
         if isinstance(data, dict) and "message" in data:
             formatted_text = str(data["message"])
         elif isinstance(data, dict):
-            # Agar structured dict ho, to HTML list bana dein
+            # Dynamic Key-Value Pairs ko HTML me convert karein
             lines = []
             for k, v in data.items():
                 safe_val = html.escape(str(v))
