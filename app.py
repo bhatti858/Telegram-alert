@@ -1,5 +1,6 @@
 import os
 import html
+import json
 import requests
 from flask import Flask, request, jsonify
 
@@ -80,49 +81,49 @@ def webhook():
             "message": "Webhook endpoint is active. Send a POST request with payload to trigger alerts."
         }), 200
 
-    # POST Request Handling
+    # POST Request Handling (Crash-Proof Parsing)
     try:
-        data = None
+        raw_bytes = request.get_data()
+        raw_text = raw_bytes.decode("utf-8", errors="replace").strip()
 
-        # 1. JSON Payload extract karein (agar JSON format me ho)
-        if request.is_json:
-            data = request.get_json(silent=True)
-            
-        # 2. Agar JSON fail ho jaye to raw string try karein
-        if not data:
-            raw_text = request.get_data(as_text=True)
-            if raw_text:
-                data = {"message": raw_text}
-
-        if not data:
+        if not raw_text:
             print("[WEBHOOK ERROR] Request Body bilkul empty mili.")
             return jsonify({"status": "error", "message": "Empty body"}), 400
 
-        # 3. Message format karein
-        if isinstance(data, dict) and "message" in data:
-            formatted_text = str(data["message"])
+        data = None
+        # 1. JSON Parse karne ki koshish karein
+        try:
+            data = json.loads(raw_text)
+        except Exception:
+            # Agar JSON broken hai ya raw text hai to string banayein
+            data = {"message": raw_text}
+
+        # 2. Message Formatting
+        if isinstance(data, dict) and "message" in data and len(data) == 1:
+            formatted_text = f"<b>📊 TRADINGVIEW ALERT</b>\n\n{html.escape(str(data['message']))}"
         elif isinstance(data, dict):
-            # Dynamic Key-Value Pairs ko HTML me convert karein
             lines = []
             for k, v in data.items():
                 safe_val = html.escape(str(v))
-                lines.append(f"<b>{k.capitalize()}:</b> {safe_val}")
+                lines.append(f"<b>{html.escape(str(k)).capitalize()}:</b> {safe_val}")
             formatted_text = "<b>📊 TRADINGVIEW ALERT</b>\n\n" + "\n".join(lines)
         else:
-            formatted_text = str(data)
+            formatted_text = f"<b>📊 TRADINGVIEW ALERT</b>\n\n{html.escape(str(data))}"
 
-        # 4. Telegram Alert dispatch karein
+        # 3. Telegram Alert Dispatch
         success = send_telegram(formatted_text)
 
         if success:
             return jsonify({"status": "success", "message": "Alert sent to Telegram"}), 200
         else:
-            print("[WEBHOOK ERROR] Telegram dispatch failed. Check bot credentials.")
+            print("[WEBHOOK ERROR] Telegram dispatch failed. Check bot credentials or permissions.")
             return jsonify({"status": "error", "message": "Telegram delivery failed"}), 500
 
     except Exception as e:
-        print(f"[WEBHOOK EXCEPTION CRASH] {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        print(f"[WEBHOOK EXCEPTION CRASH PREVENTED] {e}")
+        # Crash hone ke bajaye error log karega aur raw text bhejney ki try karega
+        send_telegram(f"<b>⚠️ ALERT PARSE ERROR</b>\n\n<code>{html.escape(str(e))}</code>")
+        return jsonify({"status": "error", "message": str(e)}), 200
 
 
 @app.route("/weekly-report", methods=["GET", "POST"])
