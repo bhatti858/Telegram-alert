@@ -1,11 +1,12 @@
 import os
+import html
 import requests
 from flask import Flask, request, jsonify
 
 # =====================================================
 # FLASK APP SETUP
 # =====================================================
-# Variable ka naam 'app' hona zaroori hai taake 'gunicorn app:app' kaam kar sakay
+# Gunicorn 'app:app' command ke sath sync rakhne ke liye variable 'app' hai
 app = Flask(__name__)
 
 # =====================================================
@@ -18,17 +19,17 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "-1004481939466").strip()
 # HELPER FUNCTIONS
 # =====================================================
 def send_telegram(message):
+    """Telegram API par message dispatch karta hai aur error log karta hai."""
     if not TELEGRAM_BOT_TOKEN:
-        print("[TELEGRAM ERROR] TELEGRAM_BOT_TOKEN is missing in environment variables")
+        print("[TELEGRAM ERROR] TELEGRAM_BOT_TOKEN Environment Variable missing hai!")
         return False
 
     if not TELEGRAM_CHAT_ID:
-        print("[TELEGRAM ERROR] TELEGRAM_CHAT_ID is missing")
+        print("[TELEGRAM ERROR] TELEGRAM_CHAT_ID missing hai!")
         return False
 
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
 
-    # Markdown ki jagah HTML parse mode reliable rehta hai taake special characters error na dein
     payload = {
         "chat_id": TELEGRAM_CHAT_ID,
         "text": message,
@@ -36,23 +37,25 @@ def send_telegram(message):
     }
 
     try:
-        response = requests.post(
-            url,
-            json=payload,
-            timeout=15
-        )
-
+        response = requests.post(url, json=payload, timeout=15)
         print(f"[TELEGRAM] HTTP Status: {response.status_code}")
 
         if response.ok:
-            print("[TELEGRAM] Alert sent successfully!")
+            print("[TELEGRAM] Message successfully send ho gaya!")
             return True
 
-        print(f"[TELEGRAM ERROR] API Response: {response.text}")
+        # Agar HTML parse error aaye to plain text me fallback bhejega
+        print(f"[TELEGRAM API ERROR] {response.text}")
+        if "can't parse entities" in response.text.lower():
+            print("[TELEGRAM] HTML Parse failed, retrying as Plain Text...")
+            payload.pop("parse_mode", None)
+            retry_res = requests.post(url, json=payload, timeout=15)
+            return retry_res.ok
+
         return False
 
     except Exception as e:
-        print(f"[TELEGRAM ERROR] Exception: {e}")
+        print(f"[TELEGRAM EXCEPTION] {e}")
         return False
 
 # =====================================================
@@ -61,43 +64,60 @@ def send_telegram(message):
 
 @app.route("/", methods=["GET"])
 def home():
-    """Health check route to verify server is alive."""
+    """Render health-check endpoint."""
     return jsonify({
         "status": "online",
-        "message": "Telegram Alert Server is running!"
+        "service": "Telegram Alert Webhook Server"
     }), 200
 
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    """Webhook endpoint to receive incoming alerts (e.g. from TradingView or custom signals)."""
+    """TradingView ya kisi bhi automated signal ka POST request receive karta hai."""
     try:
-        # Check if incoming data is JSON or raw text
+        data = None
+
+        # 1. JSON Payload extract karein (agar JSON format me ho)
         if request.is_json:
-            data = request.get_json()
-            message = data.get("message", str(data))
+            data = request.get_json(silent=True)
+            
+        # 2. Agar JSON fail ho jaye to raw string try karein
+        if not data:
+            raw_text = request.get_data(as_text=True)
+            if raw_text:
+                data = {"message": raw_text}
+
+        if not data:
+            print("[WEBHOOK ERROR] Request Body bilkul empty mili.")
+            return jsonify({"status": "error", "message": "Empty body"}), 400
+
+        # 3. Message format karein
+        if isinstance(data, dict) and "message" in data:
+            formatted_text = str(data["message"])
+        elif isinstance(data, dict):
+            # Agar structured dict ho, to HTML list bana dein
+            lines = []
+            for k, v in data.items():
+                safe_val = html.escape(str(v))
+                lines.append(f"<b>{k.capitalize()}:</b> {safe_val}")
+            formatted_text = "<b>📊 TRADINGVIEW ALERT</b>\n\n" + "\n".join(lines)
         else:
-            message = request.get_data(as_text=True)
+            formatted_text = str(data)
 
-        if not message:
-            return jsonify({"status": "error", "message": "Empty payload"}), 400
-
-        # Formatted HTML message send kar rahay hain
-        alert_text = f"<b>🚨 ALERT RECEIVED</b>\n\n{message}\n\n<i>@bhatti3273</i>"
-        
-        success = send_telegram(alert_text)
+        # 4. Telegram Alert dispatch karein
+        success = send_telegram(formatted_text)
 
         if success:
-            return jsonify({"status": "success", "message": "Telegram alert sent"}), 200
+            return jsonify({"status": "success", "message": "Alert sent to Telegram"}), 200
         else:
-            return jsonify({"status": "error", "message": "Failed to send Telegram alert"}), 500
+            print("[WEBHOOK ERROR] Telegram dispatch failed. Check bot credentials.")
+            return jsonify({"status": "error", "message": "Telegram delivery failed"}), 500
 
     except Exception as e:
-        print(f"[WEBHOOK ERROR] {e}")
+        print(f"[WEBHOOK EXCEPTION CRASH] {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 
-# Local testing ke liye (Render par Gunicorn isko handle karta hai)
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
