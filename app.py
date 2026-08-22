@@ -1,109 +1,107 @@
 import os
+import sys
 import requests
-from flask import Flask, jsonify, request
+from flask import Flask, request, jsonify
 
+# ==========================================
+# CONFIGURATION
+# ==========================================
+BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8893031654:AAFbVqDnzF5z1rXpw7P8JFM_pHPwDT0592g")
+CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1004481939466")
+WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", "my_secret_key")
+
+# Flask Webhook Server Instance
 app = Flask(__name__)
 
-# --- CONFIGURATION ---
-# Replace with your actual Bot Token from @BotFather
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8893031654:AAFbVqDnzF5z1rXpw7P8JFM_pHPwDT0592g")
+# ==========================================
+# TELEGRAM NOTIFIER FUNCTION
+# ==========================================
+def send_telegram_alert(message: str, parse_mode: str = "HTML") -> bool:
+    """Telegram API par message bhejne ka main function."""
+    if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
+        print("❌ Error: TELEGRAM_BOT_TOKEN missing!")
+        return False
 
-# Target Channel ID with -100 prefix (e.g., -1001608807600) or Username (e.g., "@Hello")
-CHAT_ID = os.getenv("CHAT_ID", "-1001608807600")
-
-
-def send_telegram_message(text: str) -> bool:
-    """Sends a formatted message to the target Telegram Channel via HTTP POST."""
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
-        "text": text,
-        "parse_mode": "HTML",
-        "disable_web_page_preview": True,
+        "text": message,
+        "parse_mode": parse_mode,
+        "disable_web_page_preview": True
     }
 
     try:
         response = requests.post(url, json=payload, timeout=10)
-        res_data = response.json()
-
-        if res_data.get("ok"):
-            print("[SUCCESS] Alert dispatched to Telegram.")
+        data = response.json()
+        if data.get("ok"):
+            print("✅ Alert successfully sent to Telegram!")
             return True
         else:
-            print(f"[ERROR] Telegram API Error: {res_data.get('description')}")
+            print(f"❌ Telegram API Error: {data.get('description')}")
             return False
     except Exception as e:
-        print(f"[ERROR] Request failed: {e}")
+        print(f"❌ Network/Request Error: {e}")
         return False
 
+def send_formatted_trade(symbol: str, action: str, price: str, pnl: str = None):
+    """Formatted Trading Alert Template."""
+    icon = "🟢" if action.upper() in ["BUY", "LONG"] else "🔴"
+    text = (
+        f"<b>{icon} TRADE ALERT: {action.upper()}</b>\n"
+        f"───────────────────\n"
+        f"<b>Symbol:</b> <code>{symbol}</code>\n"
+        f"<b>Price:</b> <code>{price}</code>\n"
+    )
+    if pnl:
+        text += f"<b>PnL:</b> <code>{pnl}</code>\n"
+    
+    text += "───────────────────\n<i>Automated GitHub Alert</i>"
+    return send_telegram_alert(text)
 
+# ==========================================
+# FLASK WEBHOOK ROUTES (Server Usage)
+# ==========================================
 @app.route("/", methods=["GET"])
-def health_check():
-    """Health check endpoint to verify server status."""
-    return jsonify({"status": "online", "target_chat": CHAT_ID}), 200
-
+def home():
+    return jsonify({"status": "active", "service": "Telegram Alert Webhook"}), 200
 
 @app.route("/webhook", methods=["POST"])
 def webhook():
-    """Webhook endpoint to receive signals and dispatch Telegram notifications."""
-    try:
-        # Handle JSON payloads (TradingView / Automated webhook signals)
-        if request.is_json:
-            data = request.get_json()
+    # Security Key Check
+    secret = request.headers.get("X-Secret-Key") or request.args.get("secret")
+    if secret != WEBHOOK_SECRET:
+        return jsonify({"error": "Unauthorized"}), 401
 
-            # Extract fields with fallbacks
-            symbol = data.get("symbol", "N/A")
-            action = data.get("action", data.get("side", "ALERT")).upper()
-            price = data.get("price", "N/A")
-            tp = data.get("tp", "N/A")
-            sl = data.get("sl", "N/A")
-            message_custom = data.get("message", "")
+    data = request.get_json(silent=True) or request.form.to_dict()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
 
-            # Format signal into HTML string
-            formatted_alert = (
-                f"<b>🚨 TRADING SIGNAL</b>\n\n"
-                f"<b>Symbol:</b> {symbol}\n"
-                f"<b>Action:</b> {action}\n"
-                f"<b>Price:</b> {price}\n"
-            )
+    # Payload Handling
+    if "message" in data:
+        send_telegram_alert(f"📢 <b>Incoming Alert:</b>\n\n{data['message']}")
+    else:
+        symbol = data.get("symbol", "XAUUSD")
+        action = data.get("action", "BUY")
+        price = data.get("price", "N/A")
+        pnl = data.get("pnl", None)
+        send_formatted_trade(symbol, action, price, pnl)
 
-            if tp != "N/A" or sl != "N/A":
-                formatted_alert += (
-                    f"<code>TP: {tp} | SL: {sl}</code>\n"
-                )
+    return jsonify({"status": "success"}), 200
 
-            if message_custom:
-                formatted_alert += f"\n<b>Note:</b> {message_custom}"
-
-        # Handle Raw Text payloads
-        else:
-            raw_text = request.get_data(as_text=True)
-            formatted_alert = f"<b>🚨 ALERT NOTIFICATION</b>\n\n{raw_text}"
-
-        # Dispatch alert
-        success = send_telegram_message(formatted_alert)
-
-        if success:
-            return (
-                jsonify({"status": "success", "message": "Alert sent"}),
-                200,
-            )
-        else:
-            return (
-                jsonify(
-                    {
-                        "status": "error",
-                        "message": "Failed to send to Telegram",
-                    }
-                ),
-                500,
-            )
-
-    except Exception as e:
-        print(f"[ERROR] Webhook processing failed: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 400
-
-
+# ==========================================
+# MAIN EXECUTION ENTRY POINT
+# ==========================================
 if __name__ == "__main__":
-    # Runs server locally on port 5000
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    # Agar argument "--server" paas karenge to Flask server chalayega, 
+    # warna direct test alert bhejega.
+    if len(sys.argv) > 1 and sys.argv[1] == "--server":
+        print("🚀 Starting Webhook Server on port 5000...")
+        app.run(host="0.0.0.0", port=5000)
+    else:
+        print("📤 Sending Test Alert...")
+        send_formatted_trade(
+            symbol="XAUUSD",
+            action="BUY",
+            price="2450.50",
+            pnl="+150 USD"
+        )
