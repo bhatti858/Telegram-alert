@@ -1,67 +1,47 @@
-import os
 import requests
-from flask import Flask, request, jsonify
+from flask import Flask, request
 
 app = Flask(__name__)
 
-# Render Environment Variables se keys read karega
-TELEGRAM_BOT_TOKEN = os.getenv('8219130500:AAEzWzqLuot7pyUhs0OPtyypRlAkebrrUs8')
-TELEGRAM_CHAT_ID = os.getenv('TELEGRAM_CHAT_ID', '-1004481939466')
+# Aapki configuration details
+TELEGRAM_TOKEN = "8219130500:AAEzWzqLuot7pyUhs0OPtyypRlAkebrrUs8"  # BotFather se mila hua API token yahan likhein
+CHAT_ID = "-1004481939466"  # Aap ki Telegram Group Chat ID
 
-@app.route('/', methods=['GET'])
-def home():
-    return jsonify({
-        "status": "online",
-        "message": "TradingView Webhook Server is Live!"
-    }), 200
-
-@app.route('/webhook', methods=['GET', 'POST'])
+@app.route('/webhook', methods=['POST'])
 def webhook():
-    if request.method == 'GET':
-        return jsonify({
-            "status": "online",
-            "message": "Webhook endpoint is active."
-        }), 200
+    data = request.json
+    if not data:
+        return "No data received", 400
 
-    try:
-        data = request.get_json(silent=True)
-        if not data:
-            data = request.get_data(as_text=True)
+    # TradingView JSON Payload se values extract ho rahi hain
+    action = data.get('action', 'SIGNAL')
+    symbol = data.get('symbol', 'N/A')
+    price = data.get('price', 'N/A')
+    tf = data.get('timeframe', 'N/A')
+    tp = data.get('tp', 'N/A')
+    sl = data.get('sl', 'N/A')
 
-        if not TELEGRAM_BOT_TOKEN:
-            print("[ERROR] TELEGRAM_BOT_TOKEN Render Environment Variables mein missing hai!")
-            return jsonify({"status": "error", "message": "Bot token not configured"}), 200
+    # Telegram message ka format
+    message = (
+        f"🚨 <b>TRADINGVIEW SIGNAL</b> 🚨\n\n"
+        f"📌 <b>Symbol:</b> {symbol}\n"
+        f"📈 <b>Action:</b> {action}\n"
+        f"💰 <b>Price:</b> {price}\n"
+        f"⏱ <b>Timeframe:</b> {tf}\n"
+        f"🎯 <b>TP:</b> {tp}\n"
+        f"🛑 <b>SL:</b> {sl}"
+    )
 
-        # Message Format
-        if isinstance(data, dict):
-            ticker = data.get("ticker", "N/A")
-            action = data.get("action", "ALERT")
-            price = data.get("price", "N/A")
-            message_text = f"🚨 **TradingView Alert** 🚨\n\n📌 **Ticker:** {ticker}\n🎬 **Action:** {action}\n💵 **Price:** {price}"
-        else:
-            message_text = f"🚨 **TradingView Alert** 🚨\n\n{data}"
+    # Telegram API URL
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML"
+    }
 
-        # Telegram Request
-        telegram_url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-        payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
-            "text": message_text,
-            "parse_mode": "Markdown"
-        }
-
-        response = requests.post(telegram_url, json=payload, timeout=10)
-
-        if response.status_code != 200:
-            print(f"[TELEGRAM ERROR] {response.text}")
-            return jsonify({"status": "error", "message": "Telegram API Error"}), 200
-
-        return jsonify({"status": "success", "message": "Alert sent successfully"}), 200
-
-    except Exception as e:
-        print(f"[EXCEPTION] {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 200
-
+    response = requests.post(url, json=payload)
+    return "OK", 200
 
 if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 10000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host='0.0.0.0', port=5000)
